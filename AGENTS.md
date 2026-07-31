@@ -91,9 +91,12 @@ Unit tests are pure-function tests. Integration tests use a temporary `HOME` wit
 `GIT_CONFIG_GLOBAL` and a real `git` binary — they assert what git actually resolves,
 not what we wrote to a file.
 
-`parity.test.ts` runs the generated snippet for zsh, bash and fish under `zsh -f`,
-`bash --norc` and `fish --no-config`, and skips any shell that is not installed — so a
-green run does not mean every shell was exercised. Check the skip count. The
-"uses only builtins" tests run the snippet with `PATH` emptied rather than grepping the
-generated string for a list of command names, because the list is what let `$(pwd` slip
-through.
+`parity.test.ts` runs the generated snippet for zsh and bash under `zsh -f` and
+`bash --norc`, and skips any shell that is not installed — so a green run does not mean
+every shell was exercised. Check the skip count. The "uses only builtins" tests run the
+snippet with `PATH` emptied rather than grepping the generated string for a list of
+command names, because the list is what let `$(pwd` slip through.
+
+Only add a shell you can actually run here. A fish snippet was written and then removed
+before the first release for exactly this reason: every fish case skipped, so the parity
+guarantee — the thing that makes invariant 6 more than a wish — never covered it.

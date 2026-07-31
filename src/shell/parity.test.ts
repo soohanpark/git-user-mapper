@@ -8,7 +8,6 @@ import { toAbsolutePath } from "../core/paths.ts";
 import { applySync } from "../core/sync.ts";
 import type { ProfileId, StoreV2 } from "../types.ts";
 import { bashSnippet } from "./bash.ts";
-import { fishSnippet } from "./fish.ts";
 import { type ShellInitOptions, zshSnippet } from "./zsh.ts";
 
 const id = (value: string): ProfileId => value as ProfileId;
@@ -34,17 +33,11 @@ const SHELLS: readonly Shell[] = [
     argv: (script) => ["--norc", "--noprofile", "-c", script],
     print: (v) => `printf '%s\\n' "$${v}"`,
   },
-  {
-    name: "fish",
-    snippet: fishSnippet,
-    argv: (script) => ["--no-config", "-c", script],
-    print: (v) => `echo $${v}`,
-  },
 ];
 
 const isAvailable = async (name: string): Promise<boolean> => {
   try {
-    await execa(name, name === "fish" ? ["--no-config", "-c", "true"] : ["-c", "exit 0"]);
+    await execa(name, ["-c", "exit 0"]);
     return true;
   } catch {
     return false;

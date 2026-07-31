@@ -89,7 +89,7 @@ export const run = async (argv: readonly string[]): Promise<void> => {
 
   program
     .command("shell-init")
-    .argument("<shell>", "zsh, bash or fish")
+    .argument("<shell>", "zsh or bash")
     .description("Print the shell snippet that shows the active profile in your prompt")
     .action(async (shell: string) => {
       await runShellInit(shell);

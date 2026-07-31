@@ -40,6 +40,10 @@ No snippet executes an external binary.
   `pwd` is a builtin, so this forks a subshell but execs nothing. bash has no fork-free
   equivalent of zsh's `${PWD:A}`, and dropping the symlink resolution would break parity
   with git.
-- **fish** uses command substitution around builtins (`pwd -P`, `string`, `math`). Earlier
-  versions of this snippet called `cat` and `/usr/bin/dirname`, the latter once per
-  directory level walked; both are gone.
+
+## Supported shells
+
+zsh and bash. A fish snippet existed but was removed before the first release: it could
+not be run here, and `parity.test.ts` is the only thing that makes the equivalence claim
+above meaningful. Adding a shell means adding it to that test — a snippet no test has ever
+executed is a claim, not a feature.

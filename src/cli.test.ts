@@ -94,12 +94,12 @@ test("a user-facing error prints a message, not a stack trace", async () => {
 test("an unsupported shell is reported plainly", async () => {
   const result = await runCli(["shell-init", "tcsh"]);
   assert.match(result.stderr, /Unsupported shell tcsh/);
-  assert.match(result.stderr, /zsh, bash, fish/);
+  assert.match(result.stderr, /zsh, bash/);
   assert.equal(result.exitCode, 1);
 });
 
 test("shell-init emits a snippet for every supported shell", async () => {
-  for (const shell of ["zsh", "bash", "fish"]) {
+  for (const shell of ["zsh", "bash"]) {
     const result = await runCli(["shell-init", shell]);
     assert.equal(result.exitCode, 0, `shell-init ${shell} failed`);
     assert.match(result.stdout, /_git_mapper_resolve/, `shell-init ${shell} produced nothing`);

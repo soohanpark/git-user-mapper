@@ -41,13 +41,13 @@ a repository with `--porcelain`.
 
 With Powerlevel10k, add `git_mapper` to `POWERLEVEL9K_RIGHT_PROMPT_ELEMENTS`. With any
 other theme, use `$GIT_MAPPER_PROFILE` and `$GIT_MAPPER_STATE` in your own prompt. `bash`
-and `fish` are supported too.
+is supported too.
 
 The segment reads a small generated table and runs no external command, so it is cheap per
-prompt — zsh spawns nothing at all, bash forks one subshell for `pwd -P`, and fish uses
-command substitution around builtins. It shows the mapped profile, marks the fallback as
-`(default)`, and warns when a repository's local `[user]` overrides the mapping. A parity
-test runs the generated matcher against real git to make sure the two never disagree.
+prompt — zsh spawns nothing at all, bash forks one subshell for `pwd -P`. It shows the
+mapped profile, marks the fallback as `(default)`, and warns when a repository's local
+`[user]` overrides the mapping. A parity test runs the generated matcher for both shells
+against real git to make sure the two never disagree.
 
 ## Upgrading from git-user-switch
 
