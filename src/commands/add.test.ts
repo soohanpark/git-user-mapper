@@ -45,3 +45,11 @@ test("buildProfile rejects empty name or email so they never reach git", () => {
     /email/,
   );
 });
+
+/** 탭과 개행은 mapping.tsv의 구분자다. sync가 거부하기 전에 입력에서 막는다. */
+test("buildProfile rejects values containing a tab or a line break", () => {
+  const base = { id: "a", name: "n", email: "e@x.com", signingKey: "", index: 0 };
+  assert.throws(() => buildProfile({ ...base, name: "a\tb" }), /tab or a line break/);
+  assert.throws(() => buildProfile({ ...base, email: "a\nb@x.com" }), /tab or a line break/);
+  assert.throws(() => buildProfile({ ...base, signingKey: "K\rY" }), /tab or a line break/);
+});

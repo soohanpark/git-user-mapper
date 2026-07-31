@@ -1,4 +1,4 @@
 #!/usr/bin/env node
-import { run } from "../src/cli.ts";
+import { main } from "../src/cli.ts";
 
-await run(process.argv);
+await main(process.argv);

@@ -46,9 +46,16 @@ test("clearManaged removes our includeIf entries and profile files but leaves [u
   const condition = synced.managedConditions[0] as string;
   assert.notEqual(await getIncludeIf(condition, { env }), null);
 
+  const table = path.join(options.configDir, "mapping.tsv");
+  assert.match(fs.readFileSync(table, "utf8"), /personal/);
+
   await clearManaged(synced, options);
 
   assert.equal(await getIncludeIf(condition, { env }), null);
   assert.equal(fs.existsSync(path.join(options.configDir, "profiles", "personal.gitconfig")), false);
   assert.match(fs.readFileSync(globalConfigPath, "utf8"), /\[user\]/);
+
+  // 셸 스니펫이 읽는 건 오직 이 파일이다. 여기 남아 있으면 프롬프트는 지워진
+  // 프로파일을 계속 보여 준다 — 다음 sync가 돌 때까지.
+  assert.doesNotMatch(fs.readFileSync(table, "utf8"), /personal/);
 });

@@ -150,3 +150,41 @@ test("computeStatus warns about overlapping mappings", () => {
     result.warnings.join("|"),
   );
 });
+
+/**
+ * 셸 스니펫과 같은 순서로 판단해야 한다(resolve.md 7). 전역 [user]가 없고 저장소
+ * 로컬만 있는 경우, 로컬을 나중에 보면 status는 `default`, 프롬프트는 `local-override`로
+ * 답이 갈린다. 둘 중 하나가 거짓말인 게 아니라 둘이 다른 게 문제다.
+ */
+test("computeStatus calls a repo-local identity local-override even with no fallback", () => {
+  const noDefault = { ...store, defaultProfile: null };
+  const result = computeStatus(
+    noDefault,
+    env({
+      repoRoot: p("/home/me/elsewhere"),
+      gitEmail: "solo@example.com",
+      localEmail: "solo@example.com",
+    }),
+    false,
+  );
+
+  assert.equal(result.state, "local-override");
+  assert.equal(result.email, "solo@example.com");
+});
+
+test("computeStatus keeps no-identity for a repo where git has no answer either", () => {
+  const result = computeStatus(
+    { ...store, defaultProfile: null },
+    env({ repoRoot: p("/home/me/elsewhere"), gitEmail: null, localEmail: null }),
+    false,
+  );
+
+  assert.equal(result.state, "no-identity");
+  assert.equal(result.email, null);
+});
+
+test("computeStatus does not call it an override when the local email matches the mapping", () => {
+  const result = computeStatus(store, env({ localEmail: "me@x.com" }), false);
+  assert.equal(result.state, "mapped");
+  assert.equal(result.profileId, "personal");
+});

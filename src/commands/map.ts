@@ -1,11 +1,11 @@
+import fs from "node:fs";
 import path from "node:path";
 import { input, select } from "@inquirer/prompts";
 import chalk from "chalk";
 import { createContext, syncAndPersist } from "../core/context.ts";
 import { findRepoRoot, toAbsolutePath, unsafeAbsolutePath } from "../core/paths.ts";
-import { uniqueId } from "../core/profile.ts";
 import type { AbsolutePath, ProfileId, StoreV2 } from "../types.ts";
-import { buildProfile } from "./add.ts";
+import { promptForProfile } from "./add.ts";
 
 export const unassignPath = (store: StoreV2, target: AbsolutePath): StoreV2 => ({
   ...store,
@@ -86,12 +86,7 @@ export const runMap = async (): Promise<void> => {
 
   let profileId: ProfileId;
   if (selection === NEW_PROFILE) {
-    const taken = new Set(store.profiles.map((profile) => profile.id as string));
-    const name = await input({ message: "Git user name" });
-    const email = await input({ message: "Git email" });
-    const signingKey = await input({ message: "GPG signing key (optional)" });
-    const id = await input({ message: "Profile id", default: uniqueId(email, taken) });
-    const profile = buildProfile({ id, name, email, signingKey, index: store.profiles.length });
+    const profile = await promptForProfile(store);
     store = { ...store, profiles: [...store.profiles, profile] };
     profileId = profile.id;
   } else {
@@ -107,8 +102,24 @@ export const runMap = async (): Promise<void> => {
     ],
   });
 
+  // 직접 입력한 경로는 실존하는 디렉토리여야 한다(스펙 4.1). 오타를 그대로 받으면
+  // 절대 발동하지 않는 includeIf가 생기고, status는 "경로가 사라졌다"고 엉뚱하게 설명한다.
   const target =
-    scope === CUSTOM ? toAbsolutePath(await input({ message: "Directory" })) : unsafeAbsolutePath(scope);
+    scope === CUSTOM
+      ? toAbsolutePath(
+          await input({
+            message: "Directory",
+            validate: (value: string) => {
+              const trimmed = value.trim();
+              if (trimmed === "") return "Please enter a directory.";
+              const resolved = toAbsolutePath(trimmed);
+              if (!fs.existsSync(resolved)) return `${resolved} does not exist.`;
+              if (!fs.statSync(resolved).isDirectory()) return `${resolved} is not a directory.`;
+              return true;
+            },
+          }),
+        )
+      : unsafeAbsolutePath(scope);
 
   const targetRepo = findRepoRoot(target);
   if (targetRepo !== null && targetRepo !== target) {

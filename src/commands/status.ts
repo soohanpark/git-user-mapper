@@ -82,26 +82,12 @@ export const computeStatus = (
 
   const matched = resolve(buildTable(store), env.repoRoot, caseInsensitive);
 
-  // 스토어에 기본 프로파일이 없어도 ~/.gitconfig의 [user]는 여전히 fallback이다(스펙 4.1).
-  // git이 이메일을 답한다면 그게 실제로 커밋에 쓰일 identity이므로, 관리 대상이 아닐 뿐
-  // "identity 없음"이 아니다. no-identity는 git조차 답이 없을 때만 쓴다.
-  const resolved =
-    matched.state === "no-identity" && env.gitEmail !== null
-      ? { state: "default" as const, profileId: null, color: null, email: env.gitEmail }
-      : matched;
-
-  const overridden = env.localEmail !== null && env.localEmail !== resolved.email;
-
-  if (
-    env.gitEmail !== null &&
-    !overridden &&
-    resolved.email !== null &&
-    env.gitEmail !== resolved.email
-  ) {
-    warnings.push(
-      `git reports ${env.gitEmail} here but the mapping resolves to ${resolved.email}. Something outside git-user-mapper is overriding it.`,
-    );
-  }
+  // 로컬 [user]가 표의 답과 다르면 실제로 커밋에 쓰이는 건 로컬 쪽이다. 표에 답이 아예
+  // 없을 때도 마찬가지다 — 셸 스니펫과 같은 순서로 판단해야 둘이 갈리지 않는다
+  // (resolve.md 7). 여기서 `matched.email`이 아니라 아래 `resolved.email`과 비교하면,
+  // 전역 [user]가 없고 로컬만 있는 저장소에서 셸은 local-override, status는 default라고
+  // 답하게 된다.
+  const overridden = env.localEmail !== null && env.localEmail !== matched.email;
 
   if (overridden) {
     const owner = store.profiles.find((profile) => profile.email === env.localEmail);
@@ -112,6 +98,20 @@ export const computeStatus = (
       repoRoot: env.repoRoot,
       warnings,
     };
+  }
+
+  // 스토어에 기본 프로파일이 없어도 ~/.gitconfig의 [user]는 여전히 fallback이다(스펙 4.1).
+  // git이 이메일을 답한다면 그게 실제로 커밋에 쓰일 identity이므로, 관리 대상이 아닐 뿐
+  // "identity 없음"이 아니다. no-identity는 git조차 답이 없을 때만 쓴다.
+  const resolved =
+    matched.state === "no-identity" && env.gitEmail !== null
+      ? { state: "default" as const, profileId: null, color: null, email: env.gitEmail }
+      : matched;
+
+  if (env.gitEmail !== null && resolved.email !== null && env.gitEmail !== resolved.email) {
+    warnings.push(
+      `git reports ${env.gitEmail} here but the mapping resolves to ${resolved.email}. Something outside git-user-mapper is overriding it.`,
+    );
   }
 
   return {
@@ -188,9 +188,9 @@ export const runStatus = async (options: { readonly porcelain: boolean }): Promi
   if (result.state === "not-a-repo") {
     process.stdout.write(chalk.dim("Not inside a git repository.\n"));
   } else {
-    process.stdout.write(`  경로       ${result.repoRoot}\n`);
-    process.stdout.write(`  프로파일   ${result.profileId ?? "-"} (${result.state})\n`);
-    process.stdout.write(`  이메일     ${result.email ?? "-"}\n`);
+    process.stdout.write(`  repository  ${result.repoRoot}\n`);
+    process.stdout.write(`  profile     ${result.profileId ?? "-"} (${result.state})\n`);
+    process.stdout.write(`  email       ${result.email ?? "-"}\n`);
   }
   for (const warning of result.warnings) {
     process.stdout.write(chalk.yellow(`  ! ${warning}\n`));
