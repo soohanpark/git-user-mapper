@@ -7,9 +7,7 @@ export const bashSnippet = (options: ShellInitOptions): string => {
   const enable = options.caseInsensitive
     ? "  local _gm_nocase=1\n  shopt -q nocasematch || _gm_nocase=0\n  shopt -s nocasematch\n"
     : "";
-  const restore = options.caseInsensitive
-    ? "  (( _gm_nocase )) || shopt -u nocasematch\n"
-    : "";
+  const restore = options.caseInsensitive ? "  (( _gm_nocase )) || shopt -u nocasematch\n" : "";
 
   return `# git-user-mapper shell integration (bash)
 _git_mapper_file=${posixSingleQuote(options.mappingFile)}
@@ -75,11 +73,11 @@ ${restore}  fi
   return 0
 }
 
-# Interpolate \$GIT_MAPPER_PROFILE and \$GIT_MAPPER_STATE into your own PS1.
+# Interpolate $GIT_MAPPER_PROFILE and $GIT_MAPPER_STATE into your own PS1.
 # .bashrc와 .bash_profile 양쪽에서 source되어도 훅이 쌓이지 않게 한 번만 붙인다.
 case "\${PROMPT_COMMAND:-}" in
   *_git_mapper_resolve*) ;;
-  *) PROMPT_COMMAND="_git_mapper_resolve\${PROMPT_COMMAND:+;\$PROMPT_COMMAND}" ;;
+  *) PROMPT_COMMAND="_git_mapper_resolve\${PROMPT_COMMAND:+;$PROMPT_COMMAND}" ;;
 esac
 `;
 };

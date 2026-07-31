@@ -148,7 +148,14 @@ test("openStore does not import over a store that already has content", () => {
     version: 2,
     defaultProfile: id("mine"),
     profiles: [
-      { id: id("mine"), name: "n", email: "mine@x.com", signingKey: null, color: "blue", paths: [] },
+      {
+        id: id("mine"),
+        name: "n",
+        email: "mine@x.com",
+        signingKey: null,
+        color: "blue",
+        paths: [],
+      },
     ],
     managedConditions: [],
   };
@@ -181,9 +188,7 @@ test("parseStore rejects mapping paths that are not normalised absolute paths", 
     version: 2,
     defaultProfile: null,
     managedConditions: [],
-    profiles: [
-      { id: "a", name: "n", email: "e", signingKey: null, color: "blue", paths: [value] },
-    ],
+    profiles: [{ id: "a", name: "n", email: "e", signingKey: null, color: "blue", paths: [value] }],
   });
 
   assert.throws(() => parseStore(withPath("~/dev")), /corrupted/);

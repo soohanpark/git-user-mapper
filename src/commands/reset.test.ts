@@ -5,7 +5,7 @@ import path from "node:path";
 import { test } from "node:test";
 import { getIncludeIf } from "../core/gitconfig/globalConfig.ts";
 import { toAbsolutePath } from "../core/paths.ts";
-import { type SyncOptions, applySync } from "../core/sync.ts";
+import { applySync, type SyncOptions } from "../core/sync.ts";
 import type { ProfileId, StoreV2 } from "../types.ts";
 import { clearManaged } from "./reset.ts";
 
@@ -52,7 +52,10 @@ test("clearManaged removes our includeIf entries and profile files but leaves [u
   await clearManaged(synced, options);
 
   assert.equal(await getIncludeIf(condition, { env }), null);
-  assert.equal(fs.existsSync(path.join(options.configDir, "profiles", "personal.gitconfig")), false);
+  assert.equal(
+    fs.existsSync(path.join(options.configDir, "profiles", "personal.gitconfig")),
+    false,
+  );
   assert.match(fs.readFileSync(globalConfigPath, "utf8"), /\[user\]/);
 
   // 셸 스니펫이 읽는 건 오직 이 파일이다. 여기 남아 있으면 프롬프트는 지워진

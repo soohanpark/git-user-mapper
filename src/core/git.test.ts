@@ -81,9 +81,7 @@ test("gitOrNull only swallows the exit codes the caller declared", async () => {
   // --get: 키 없음은 1
   assert.equal(await gitOrNull(["config", "--file", file, "--get", "user.nope"], {}, [1]), null);
   // 같은 호출도 1을 허용하지 않으면 던진다
-  await assert.rejects(() =>
-    gitOrNull(["config", "--file", file, "--get", "user.nope"], {}, [5]),
-  );
+  await assert.rejects(() => gitOrNull(["config", "--file", file, "--get", "user.nope"], {}, [5]));
 
   // --remove-section: 없는 섹션은 128이지 5가 아니다
   await assert.rejects(

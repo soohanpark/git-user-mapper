@@ -102,7 +102,7 @@ function prompt_git_mapper() {
 }
 function instant_prompt_git_mapper() { prompt_git_mapper }
 
-# For themes other than p10k: \$GIT_MAPPER_PROFILE and \$GIT_MAPPER_STATE are refreshed
+# For themes other than p10k: $GIT_MAPPER_PROFILE and $GIT_MAPPER_STATE are refreshed
 # before every prompt, so you can interpolate them into your own PROMPT.
 _git_mapper_precmd() {
   # p10k 세그먼트가 이미 해석했다면 같은 프롬프트에서 두 번 돌 이유가 없다.

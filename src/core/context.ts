@@ -1,8 +1,8 @@
 import type { StoreV2 } from "../types.ts";
 import { getGlobalUser } from "./gitconfig/globalConfig.ts";
 import { configDir, globalGitConfigPath } from "./paths.ts";
-import { type StoreHandle, openStore } from "./store.ts";
-import { type SyncOptions, applySync } from "./sync.ts";
+import { openStore, type StoreHandle } from "./store.ts";
+import { applySync, type SyncOptions } from "./sync.ts";
 
 export interface Context {
   readonly store: StoreHandle;

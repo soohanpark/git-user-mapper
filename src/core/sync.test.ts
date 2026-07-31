@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { execa } from "execa";
 import type { ProfileId, StoreV2 } from "../types.ts";
 import { toAbsolutePath } from "./paths.ts";
-import { type SyncOptions, applySync, describePlan, planSync } from "./sync.ts";
+import { applySync, describePlan, planSync, type SyncOptions } from "./sync.ts";
 
 const id = (value: string): ProfileId => value as ProfileId;
 
@@ -194,7 +194,11 @@ test("a directory whose name contains glob metacharacters maps exactly and only 
   const sibling = await makeRepo(path.join(f.base, "starOTHERdir", "repo"));
 
   assert.equal(await emailIn(target, f.env), "me@gmail.com");
-  assert.equal(await emailIn(sibling, f.env), "work@nexpace.io", "the pattern leaked onto a sibling");
+  assert.equal(
+    await emailIn(sibling, f.env),
+    "work@nexpace.io",
+    "the pattern leaked onto a sibling",
+  );
 });
 
 test("a directory name containing brackets still maps", async () => {

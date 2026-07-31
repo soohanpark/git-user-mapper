@@ -1,6 +1,6 @@
 import { createRequire } from "node:module";
-import { Command } from "commander";
 import chalk from "chalk";
+import { Command } from "commander";
 import { runAdd } from "./commands/add.ts";
 import { runDefault } from "./commands/default.ts";
 import { runList } from "./commands/list.ts";

@@ -62,8 +62,7 @@ export const promptForProfile = async (store: StoreV2): Promise<Profile> => {
   const email = await input({ message: "Git email", validate: required("email") });
   const signingKey = await input({
     message: "GPG signing key (optional)",
-    validate: (value: string) =>
-      value.trim() === "" ? true : required("signing key")(value),
+    validate: (value: string) => (value.trim() === "" ? true : required("signing key")(value)),
   });
   const id = await input({
     message: "Profile id (shown in your prompt)",

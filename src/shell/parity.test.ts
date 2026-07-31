@@ -214,21 +214,19 @@ for (const shell of SHELLS) {
    * 표에 `*` 줄이 없다. 그때 로컬 [user]를 보지 않고 먼저 결론을 내면 프롬프트가
    * "identity 없음"이라고 하는데 git은 멀쩡히 커밋한다 — 불변조건 6이 금지한 바로 그것.
    */
-  test(
-    `${shell.name}: a repo-local identity is never reported as no-identity`,
-    { skip },
-    async () => {
-      const h = await setup({ withDefault: false });
-      const repo = await makeRepo(path.join(h.base, "msu", "only-local"));
-      await execa("git", ["config", "user.email", "solo@example.com"], { cwd: repo, env: h.env });
+  test(`${shell.name}: a repo-local identity is never reported as no-identity`, {
+    skip,
+  }, async () => {
+    const h = await setup({ withDefault: false });
+    const repo = await makeRepo(path.join(h.base, "msu", "only-local"));
+    await execa("git", ["config", "user.email", "solo@example.com"], { cwd: repo, env: h.env });
 
-      const result = await resolveIn(shell, h.mappingFile, repo);
-      assert.equal(await gitEmail(repo, h.env), "solo@example.com");
-      assert.notEqual(result.state, "no-identity");
-      assert.equal(result.state, "local-override");
-      assert.equal(result.profile, "solo@example.com");
-    },
-  );
+    const result = await resolveIn(shell, h.mappingFile, repo);
+    assert.equal(await gitEmail(repo, h.env), "solo@example.com");
+    assert.notEqual(result.state, "no-identity");
+    assert.equal(result.state, "local-override");
+    assert.equal(result.profile, "solo@example.com");
+  });
 
   test(`${shell.name}: says no-identity only when git has none either`, { skip }, async () => {
     const h = await setup({ withDefault: false });
@@ -270,63 +268,57 @@ for (const shell of SHELLS) {
 }
 
 /** zsh 함수는 사용자의 setopt 아래에서 돌아간다. globsubst는 표의 각 줄을 글롭으로 만든다. */
-test(
-  "zsh: the matcher is immune to the user's setopt",
-  { skip: !available.get("zsh") },
-  async () => {
-    const h = await setup();
-    const repo = await makeRepo(path.join(h.base, "personal", "opts"));
-    const snippet = zshSnippet({ mappingFile: h.mappingFile, caseInsensitive: false });
+test("zsh: the matcher is immune to the user's setopt", {
+  skip: !available.get("zsh"),
+}, async () => {
+  const h = await setup();
+  const repo = await makeRepo(path.join(h.base, "personal", "opts"));
+  const snippet = zshSnippet({ mappingFile: h.mappingFile, caseInsensitive: false });
 
-    for (const option of ["globsubst", "shwordsplit", "nullglob", "extendedglob", "ksharrays"]) {
-      const script = [
-        `setopt ${option}`,
-        snippet,
-        `cd ${JSON.stringify(repo)}`,
-        "_git_mapper_resolve",
-        'print -r -- "$GIT_MAPPER_STATE"',
-      ].join("\n");
-      const result = await execa("zsh", ["-f", "-c", script]);
-      assert.equal(result.stdout.trim(), "mapped", `broken under setopt ${option}`);
-    }
-  },
-);
-
-/** 프롬프트마다 도는 코드가 사용자의 shopt를 영구히 바꿔 버리면 안 된다. */
-test(
-  "bash: the matcher restores nocasematch to what the user had",
-  { skip: !available.get("bash") },
-  async () => {
-    const h = await setup();
-    const repo = await makeRepo(path.join(h.base, "personal", "shopt"));
-    const snippet = bashSnippet({ mappingFile: h.mappingFile, caseInsensitive: true });
-
+  for (const option of ["globsubst", "shwordsplit", "nullglob", "extendedglob", "ksharrays"]) {
     const script = [
+      `setopt ${option}`,
       snippet,
       `cd ${JSON.stringify(repo)}`,
-      "shopt -s nocasematch",
       "_git_mapper_resolve",
-      'shopt -q nocasematch && echo "on" || echo "off"',
-      "shopt -u nocasematch",
-      "_git_mapper_resolve",
-      'shopt -q nocasematch && echo "on" || echo "off"',
+      'print -r -- "$GIT_MAPPER_STATE"',
     ].join("\n");
-    const result = await execa("bash", ["--norc", "--noprofile", "-c", script]);
-    assert.deepEqual(result.stdout.split("\n"), ["on", "off"]);
-  },
-);
+    const result = await execa("zsh", ["-f", "-c", script]);
+    assert.equal(result.stdout.trim(), "mapped", `broken under setopt ${option}`);
+  }
+});
+
+/** 프롬프트마다 도는 코드가 사용자의 shopt를 영구히 바꿔 버리면 안 된다. */
+test("bash: the matcher restores nocasematch to what the user had", {
+  skip: !available.get("bash"),
+}, async () => {
+  const h = await setup();
+  const repo = await makeRepo(path.join(h.base, "personal", "shopt"));
+  const snippet = bashSnippet({ mappingFile: h.mappingFile, caseInsensitive: true });
+
+  const script = [
+    snippet,
+    `cd ${JSON.stringify(repo)}`,
+    "shopt -s nocasematch",
+    "_git_mapper_resolve",
+    'shopt -q nocasematch && echo "on" || echo "off"',
+    "shopt -u nocasematch",
+    "_git_mapper_resolve",
+    'shopt -q nocasematch && echo "on" || echo "off"',
+  ].join("\n");
+  const result = await execa("bash", ["--norc", "--noprofile", "-c", script]);
+  assert.deepEqual(result.stdout.split("\n"), ["on", "off"]);
+});
 
 /** 두 파일에서 source되어도 훅이 쌓이면 안 된다. */
-test(
-  "bash: sourcing the snippet twice registers the hook once",
-  { skip: !available.get("bash") },
-  async () => {
-    const h = await setup();
-    const snippet = bashSnippet({ mappingFile: h.mappingFile, caseInsensitive: false });
-    const script = [snippet, snippet, snippet, 'printf "%s\\n" "$PROMPT_COMMAND"'].join("\n");
-    const result = await execa("bash", ["--norc", "--noprofile", "-c", script]);
+test("bash: sourcing the snippet twice registers the hook once", {
+  skip: !available.get("bash"),
+}, async () => {
+  const h = await setup();
+  const snippet = bashSnippet({ mappingFile: h.mappingFile, caseInsensitive: false });
+  const script = [snippet, snippet, snippet, 'printf "%s\\n" "$PROMPT_COMMAND"'].join("\n");
+  const result = await execa("bash", ["--norc", "--noprofile", "-c", script]);
 
-    const occurrences = result.stdout.split("_git_mapper_resolve").length - 1;
-    assert.equal(occurrences, 1, `PROMPT_COMMAND accumulated: ${result.stdout}`);
-  },
-);
+  const occurrences = result.stdout.split("_git_mapper_resolve").length - 1;
+  assert.equal(occurrences, 1, `PROMPT_COMMAND accumulated: ${result.stdout}`);
+});

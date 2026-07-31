@@ -6,8 +6,7 @@
  */
 
 /** POSIX sh/bash/zsh. 작은따옴표를 닫고 이스케이프한 뒤 다시 연다. */
-export const posixSingleQuote = (value: string): string =>
-  `'${value.replaceAll("'", "'\\''")}'`;
+export const posixSingleQuote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
 
 /** fish는 작은따옴표 안에서 `\'`와 `\\`만 이스케이프로 인정한다. */
 export const fishSingleQuote = (value: string): string =>

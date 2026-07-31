@@ -2,7 +2,7 @@ import { confirm } from "@inquirer/prompts";
 import chalk from "chalk";
 import { type Context, createContext } from "../core/context.ts";
 import { emptyStore } from "../core/store.ts";
-import { type SyncOptions, applySync } from "../core/sync.ts";
+import { applySync, type SyncOptions } from "../core/sync.ts";
 import type { StoreV2 } from "../types.ts";
 
 /**

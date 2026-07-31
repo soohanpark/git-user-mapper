@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { AbsolutePath, ProfileId, StoreV2 } from "../types.ts";
-import { type StatusEnvironment, computeStatus } from "./status.ts";
+import { computeStatus, type StatusEnvironment } from "./status.ts";
 
 const p = (value: string): AbsolutePath => value as AbsolutePath;
 const id = (value: string): ProfileId => value as ProfileId;

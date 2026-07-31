@@ -3,3 +3,4 @@ data.json
 .memsearch/
 dist
 coverage
+*.tgz

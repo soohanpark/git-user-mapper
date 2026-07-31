@@ -6,9 +6,7 @@ export const fishSnippet = (options: ShellInitOptions): string => {
   const foldTarget = options.caseInsensitive
     ? "set -l target (string lower -- $root)"
     : "set -l target $root";
-  const foldCand = options.caseInsensitive
-    ? "set -l cand (string lower -- $p)"
-    : "set -l cand $p";
+  const foldCand = options.caseInsensitive ? "set -l cand (string lower -- $p)" : "set -l cand $p";
 
   return `# git-user-mapper shell integration (fish)
 # 외부 바이너리는 쓰지 않는다. read/string/path 는 모두 fish 내장이다.
@@ -106,7 +104,7 @@ function _git_mapper_resolve --description 'Resolve the git identity that applie
 end
 
 # 훅을 걸지 않으면 함수가 정의만 되고 아무도 부르지 않아 변수가 영영 비어 있다.
-# \$GIT_MAPPER_PROFILE 과 \$GIT_MAPPER_STATE 를 fish_prompt 안에서 그대로 쓰면 된다.
+# $GIT_MAPPER_PROFILE 과 $GIT_MAPPER_STATE 를 fish_prompt 안에서 그대로 쓰면 된다.
 function _git_mapper_prompt_hook --on-event fish_prompt
     _git_mapper_resolve
 end
