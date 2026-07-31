@@ -1,4 +1,6 @@
+import fs from "node:fs";
 import { type GitOptions, git, gitOrNull } from "../git.ts";
+import { globalGitConfigPath } from "../paths.ts";
 
 export interface GlobalUser {
   readonly name: string;
@@ -69,10 +71,21 @@ export const getGlobalUser = async (
 });
 
 /**
+ * git이 이 호출에서 전역 설정으로 볼 파일. 테스트는 `GIT_CONFIG_GLOBAL`을 `options.env`로
+ * 넘기므로 `process.env`가 아니라 그쪽을 봐야 같은 파일을 가리킨다.
+ */
+const globalPathFor = (options: GitOptions): string =>
+  globalGitConfigPath(options.env ?? process.env);
+
+/**
  * `git config --list`는 파일에 적힌 순서대로 출력한다. 순서 판정에 그대로 쓴다.
- * 비어 있는 설정도 0으로 끝나므로 정상 종료 코드는 없다 — 실패하면 그대로 던진다.
+ *
+ * 파일이 아예 없으면 git은 128로 끝난다 — 파일이 망가졌을 때와 **같은 코드**다.
+ * 종료 코드만 봐서는 갈라낼 수 없으므로 존재 여부를 먼저 확인한다. 없으면 키도 없는 게
+ * 맞고(처음 쓰는 사용자가 여기다), 있는데 실패하면 그건 진짜 고장이므로 던진다.
  */
 export const globalKeysInOrder = async (options: GitOptions = {}): Promise<readonly string[]> => {
+  if (!fs.existsSync(globalPathFor(options))) return [];
   const output = await git(["config", "--global", "--list", "--name-only"], options);
   return output.split("\n").filter((line) => line !== "");
 };

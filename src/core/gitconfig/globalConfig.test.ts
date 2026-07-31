@@ -80,3 +80,25 @@ test("hasUserAfterIncludeIf spots a [user] that would beat the mappings", async 
   );
   assert.equal(hasUserAfterIncludeIf(await globalKeysInOrder(options)), false);
 });
+
+/**
+ * 처음 쓰는 사용자에게는 전역 설정 파일이 아예 없다. git은 그때도 128로 끝나는데,
+ * 그건 파일이 망가졌을 때와 같은 코드다. 종료 코드만 보고 던지면 첫 실행이 죽는다.
+ */
+test("globalKeysInOrder returns nothing when there is no global config yet", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "gum-nocfg-"));
+  const missing = path.join(home, ".gitconfig");
+  const env = { GIT_CONFIG_GLOBAL: missing, GIT_CONFIG_NOSYSTEM: "1" };
+
+  assert.equal(fs.existsSync(missing), false);
+  assert.deepEqual(await globalKeysInOrder({ env }), []);
+});
+
+test("globalKeysInOrder throws when the config exists but cannot be parsed", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "gum-badcfg-"));
+  const broken = path.join(home, ".gitconfig");
+  fs.writeFileSync(broken, "[user\n\tname = broken\n");
+  const env = { GIT_CONFIG_GLOBAL: broken, GIT_CONFIG_NOSYSTEM: "1" };
+
+  await assert.rejects(() => globalKeysInOrder({ env }));
+});
