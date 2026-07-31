@@ -1,0 +1,15 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.6/schema.json",
+  "files": {
+    "includes": ["**/*.ts", "**/*.json", "!dist/**", "!node_modules/**", "!.memsearch"]
+  },
+  "formatter": { "enabled": true, "indentStyle": "space", "indentWidth": 2, "lineWidth": 100 },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "style": { "noNonNullAssertion": "error", "useConst": "error" },
+      "suspicious": { "noExplicitAny": "error" }
+    }
+  }
+}
