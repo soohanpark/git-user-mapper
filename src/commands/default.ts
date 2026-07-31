@@ -1,7 +1,6 @@
 import { select } from "@inquirer/prompts";
 import chalk from "chalk";
-import { createContext } from "../core/context.ts";
-import { applySync } from "../core/sync.ts";
+import { createContext, syncAndPersist } from "../core/context.ts";
 import type { ProfileId } from "../types.ts";
 
 export const runDefault = async (requested?: string): Promise<void> => {
@@ -31,6 +30,6 @@ export const runDefault = async (requested?: string): Promise<void> => {
     return;
   }
 
-  context.store.write(await applySync({ ...store, defaultProfile: target }, context.sync));
+  await syncAndPersist(context, { ...store, defaultProfile: target });
   process.stdout.write(chalk.green(`✓ Default profile is now ${target}\n`));
 };

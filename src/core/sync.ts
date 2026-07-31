@@ -5,13 +5,20 @@ import type { GitOptions } from "./git.ts";
 import { backupFile } from "./gitconfig/backup.ts";
 import type { GlobalUser } from "./gitconfig/globalConfig.ts";
 import {
+  assertGlobalConfigReadable,
   getGlobalUser,
   removeIncludeIf,
   setGlobalUser,
   setIncludeIf,
 } from "./gitconfig/globalConfig.ts";
 import { profileFilePath, pruneProfileFiles, writeProfileFile } from "./gitconfig/profileFiles.ts";
-import { buildTable, conditionFor, serializeTable, withFallback } from "./mapping.ts";
+import {
+  assertTableSerializable,
+  buildTable,
+  conditionFor,
+  serializeTable,
+  withFallback,
+} from "./mapping.ts";
 import { isCaseInsensitive } from "./paths.ts";
 import { toProfileId } from "./profile.ts";
 
@@ -44,6 +51,10 @@ export const planSync = (store: StoreV2, options: SyncOptions): SyncPlan => {
   const profilesDir = profilesDirOf(options);
   const withPaths = store.profiles.filter((profile) => profile.paths.length > 0);
   const defaultProfile = store.profiles.find((profile) => profile.id === store.defaultProfile);
+
+  // 계획을 세우는 단계에서 미리 걸러 낸다. 쓰기 직전에 검사하면 `~/.gitconfig`를 이미
+  // 고쳐 놓은 뒤에 던지게 되고, 그러면 관리 목록에 없는 includeIf가 남는다.
+  assertTableSerializable(buildTable(store));
 
   return {
     removeConditions: store.managedConditions,
@@ -97,9 +108,37 @@ const mappingTableFor = async (store: StoreV2, options: SyncOptions) => {
   });
 };
 
-export const applySync = async (store: StoreV2, options: SyncOptions): Promise<StoreV2> => {
+/**
+ * `persist`는 변경을 시작하기 **전에** 관리 조건 목록을 확정하는 데 쓴다. 이걸 넘기지 않으면
+ * 중간에 실패했을 때 이미 추가된 includeIf가 스토어의 목록에 없는 채로 남고, 목록에 없는
+ * 항목은 다음 sync가 절대 지우지 않으므로 사용자의 `~/.gitconfig`에 영원히 남는다.
+ */
+export const applySync = async (
+  store: StoreV2,
+  options: SyncOptions,
+  persist?: (next: StoreV2) => void,
+): Promise<StoreV2> => {
   const plan = planSync(store, options);
   const profilesDir = profilesDirOf(options);
+  const nextConditions = plan.addConditions.map((entry) => entry.condition);
+
+  // --- 여기부터 아래 backupFile 전까지는 아무것도 바꾸지 않는다. 실패하면 원상태 그대로다.
+
+  // 깨진 설정 파일이면 여기서 멈춘다. 이 관문 덕분에 이후 `--remove-section`의 128을
+  // "섹션이 이미 없다"로만 읽을 수 있다.
+  await assertGlobalConfigReadable(options.git);
+
+  // 표에 실릴 값을 전부 확인한다. fallback은 git에서 읽어 오므로 계획 단계에서는 못 본다.
+  const table = await mappingTableFor(store, options);
+  assertTableSerializable(table);
+
+  // 앞으로 만들 조건까지 미리 관리 목록에 넣어 둔다. 중간에 실패해도 다음 sync가 회수한다.
+  persist?.({
+    ...store,
+    managedConditions: [...new Set([...store.managedConditions, ...nextConditions])],
+  });
+
+  // --- 여기부터 변경을 시작한다.
 
   backupFile({ source: options.globalConfigPath, dir: backupsDirOf(options), now: options.now });
 
@@ -113,7 +152,7 @@ export const applySync = async (store: StoreV2, options: SyncOptions): Promise<S
 
   for (const id of plan.writeProfiles) {
     const profile = store.profiles.find((candidate) => candidate.id === id);
-    if (profile) writeProfileFile(profile, profilesDir);
+    if (profile) await writeProfileFile(profile, profilesDir, options.git);
   }
 
   for (const entry of plan.addConditions) {
@@ -123,7 +162,9 @@ export const applySync = async (store: StoreV2, options: SyncOptions): Promise<S
   pruneProfileFiles(plan.writeProfiles, profilesDir);
 
   fs.mkdirSync(options.configDir, { recursive: true, mode: 0o700 });
-  fs.writeFileSync(plan.mappingFile, serializeTable(await mappingTableFor(store, options)));
+  // 프로파일 파일과 같은 이메일이 실리므로 권한도 같게 준다.
+  fs.writeFileSync(plan.mappingFile, serializeTable(table), { mode: 0o600 });
+  fs.chmodSync(plan.mappingFile, 0o600);
 
-  return { ...store, managedConditions: plan.addConditions.map((entry) => entry.condition) };
+  return { ...store, managedConditions: nextConditions };
 };

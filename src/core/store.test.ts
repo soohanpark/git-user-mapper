@@ -170,3 +170,54 @@ test("openStore persists what it writes", () => {
   openStore({ cwd }).write(next);
   assert.deepEqual(openStore({ cwd }).read(), next);
 });
+
+/**
+ * 브랜딩은 캐스트일 뿐이라 경계에서 막지 않으면 아무것도 보장하지 않는다.
+ * `~/dev` 같은 값이 들어오면 git은 그 문자열을 그대로 패턴으로 쓰고
+ * `matches()`는 realpath와 비교하므로 프롬프트와 git의 답이 갈린다.
+ */
+test("parseStore rejects mapping paths that are not normalised absolute paths", () => {
+  const withPath = (value: string): unknown => ({
+    version: 2,
+    defaultProfile: null,
+    managedConditions: [],
+    profiles: [
+      { id: "a", name: "n", email: "e", signingKey: null, color: "blue", paths: [value] },
+    ],
+  });
+
+  assert.throws(() => parseStore(withPath("~/dev")), /corrupted/);
+  assert.throws(() => parseStore(withPath("relative/dev")), /corrupted/);
+  assert.throws(() => parseStore(withPath("/home/me/dev/")), /corrupted/);
+  assert.throws(() => parseStore(withPath("C:\\Users\\me")), /corrupted/);
+  assert.doesNotThrow(() => parseStore(withPath("/home/me/dev")));
+  assert.doesNotThrow(() => parseStore(withPath("C:/Users/me")));
+});
+
+/**
+ * id가 겹치면 두 프로파일이 같은 `profiles/<id>.gitconfig`를 두고 다투고,
+ * 한쪽 매핑이 조용히 남의 identity를 쓰게 된다.
+ */
+test("parseStore rejects duplicate profile ids", () => {
+  const profile = { name: "n", email: "e", signingKey: null, color: "blue", paths: [] };
+  assert.throws(
+    () =>
+      parseStore({
+        version: 2,
+        defaultProfile: null,
+        managedConditions: [],
+        profiles: [
+          { ...profile, id: "same" },
+          { ...profile, id: "same" },
+        ],
+      }),
+    /duplicate profile id/,
+  );
+});
+
+test("a v1-shaped store reports v1 errors, not 'version must be 2'", () => {
+  assert.throws(
+    () => parseStore({ users: [{ name: "only a name" }] }),
+    (error: Error) => error.message.includes("email") && !error.message.includes("version"),
+  );
+});

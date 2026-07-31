@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { AbsolutePath, ProfileId, StoreV2 } from "../types.ts";
-import { buildTable, conditionFor, parseTable, resolve, serializeTable } from "./mapping.ts";
+import { buildTable, conditionFor, resolve, serializeTable } from "./mapping.ts";
 
 const p = (value: string): AbsolutePath => value as AbsolutePath;
 const id = (value: string): ProfileId => value as ProfileId;
@@ -90,10 +90,16 @@ test("resolve honours the case sensitivity flag", () => {
   assert.equal(resolve(table, p("/home/me/DEV/personal/x"), false).state, "default");
 });
 
-test("serializeTable round-trips through parseTable", () => {
-  const table = buildTable(store);
-  const parsed = parseTable(serializeTable(table));
-  assert.deepEqual(parsed, table);
+/**
+ * git은 `gitdir:`를 wildmatch로 읽는다. 이스케이프하지 않으면 `star*dir` 매핑이 남남인
+ * `starOTHERdir`까지 먹고, `proj [old]`는 아무것도 매치하지 않는다. 어느 쪽이든 아래
+ * `resolve`의 리터럴 비교와 답이 갈린다. 실제 git과의 동치는 parity.test.ts가 확인한다.
+ */
+test("conditionFor escapes wildmatch metacharacters so patterns stay literal", () => {
+  assert.equal(conditionFor(p("/home/me/star*dir"), false), "gitdir:/home/me/star\\*dir/");
+  assert.equal(conditionFor(p("/home/me/q?dir"), false), "gitdir:/home/me/q\\?dir/");
+  assert.equal(conditionFor(p("/home/me/proj [old]"), false), "gitdir:/home/me/proj \\[old\\]/");
+  assert.equal(conditionFor(p("/home/me/plain"), false), "gitdir:/home/me/plain/");
 });
 
 test("serializeTable puts the fallback on a * line and sorts longest-first", () => {

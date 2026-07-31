@@ -1,7 +1,6 @@
 import { select } from "@inquirer/prompts";
 import chalk from "chalk";
-import { createContext } from "../core/context.ts";
-import { applySync } from "../core/sync.ts";
+import { createContext, syncAndPersist } from "../core/context.ts";
 import type { ProfileId } from "../types.ts";
 
 export const runRemove = async (requested?: string): Promise<void> => {
@@ -44,7 +43,7 @@ export const runRemove = async (requested?: string): Promise<void> => {
     defaultProfile: store.defaultProfile === target ? null : store.defaultProfile,
     profiles: store.profiles.filter((profile) => profile.id !== target),
   };
-  context.store.write(await applySync(next, context.sync));
+  await syncAndPersist(context, next);
 
   process.stdout.write(chalk.green(`✓ Removed ${target}\n`));
   if (store.defaultProfile === target) {

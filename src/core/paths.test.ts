@@ -7,6 +7,7 @@ import {
   configDir,
   expandTilde,
   findRepoRoot,
+  globalGitConfigPath,
   isCaseInsensitive,
   mappingFilePath,
   toAbsolutePath,
@@ -86,4 +87,37 @@ test("findRepoRoot treats a .git file as a repo root (worktrees, submodules)", (
   fs.mkdirSync(repo);
   fs.writeFileSync(path.join(repo, ".git"), "gitdir: /elsewhere/.git/worktrees/wt\n");
   assert.equal(findRepoRoot(unsafeAbsolutePath(repo)), unsafeAbsolutePath(repo));
+});
+
+/**
+ * `git config --global`이 항상 `~/.gitconfig`에 쓰는 게 아니다. git 2.50 실측:
+ * `~/.gitconfig`가 없고 `~/.config/git/config`가 있으면 쓰기는 XDG 쪽으로 간다.
+ * 여기서 파일을 잘못 짚으면 백업 대상과 실제 수정 대상이 어긋난다(불변조건 3).
+ */
+test("globalGitConfigPath follows git's own precedence", () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "gum-globalcfg-"));
+  const legacy = path.join(home, ".gitconfig");
+  const xdgDir = path.join(home, ".config", "git");
+  const xdg = path.join(xdgDir, "config");
+  fs.mkdirSync(xdgDir, { recursive: true });
+
+  // 둘 다 없으면 git이 새로 만들 ~/.gitconfig
+  assert.equal(globalGitConfigPath({}, home), legacy);
+
+  // XDG만 있으면 XDG
+  fs.writeFileSync(xdg, "");
+  assert.equal(globalGitConfigPath({}, home), xdg);
+
+  // ~/.gitconfig가 있으면 언제나 그쪽이 이긴다
+  fs.writeFileSync(legacy, "");
+  assert.equal(globalGitConfigPath({}, home), legacy);
+
+  // GIT_CONFIG_GLOBAL이 전부를 이긴다
+  assert.equal(globalGitConfigPath({ GIT_CONFIG_GLOBAL: "/tmp/override" }, home), "/tmp/override");
+});
+
+test("configDir treats an empty XDG_CONFIG_HOME as unset", () => {
+  const dir = configDir({ XDG_CONFIG_HOME: "" }, "/home/me");
+  assert.equal(path.isAbsolute(dir), true);
+  assert.equal(dir, path.join("/home/me", ".config", "git-user-mapper"));
 });

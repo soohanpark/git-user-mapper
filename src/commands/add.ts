@@ -1,8 +1,7 @@
 import { input } from "@inquirer/prompts";
 import chalk from "chalk";
-import { createContext } from "../core/context.ts";
+import { createContext, syncAndPersist } from "../core/context.ts";
 import { pickColor, toProfileId, uniqueId } from "../core/profile.ts";
-import { applySync } from "../core/sync.ts";
 import type { Profile } from "../types.ts";
 
 export interface ProfileInput {
@@ -51,7 +50,7 @@ export const runAdd = async (): Promise<void> => {
 
   const profile = buildProfile({ id, name, email, signingKey, index: store.profiles.length });
   const next = { ...store, profiles: [...store.profiles, profile] };
-  context.store.write(await applySync(next, context.sync));
+  await syncAndPersist(context, next);
 
   process.stdout.write(chalk.green(`✓ Added ${profile.id} (${profile.email})\n`));
 };

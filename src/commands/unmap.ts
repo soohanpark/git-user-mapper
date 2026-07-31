@@ -1,7 +1,6 @@
 import chalk from "chalk";
-import { createContext } from "../core/context.ts";
+import { createContext, syncAndPersist } from "../core/context.ts";
 import { toAbsolutePath } from "../core/paths.ts";
-import { applySync } from "../core/sync.ts";
 import { unassignPath } from "./map.ts";
 
 export const runUnmap = async (requested?: string): Promise<void> => {
@@ -16,6 +15,6 @@ export const runUnmap = async (requested?: string): Promise<void> => {
     return;
   }
 
-  context.store.write(await applySync(unassignPath(store, target), context.sync));
+  await syncAndPersist(context, unassignPath(store, target));
   process.stdout.write(chalk.green(`✓ Removed the mapping ${target} → ${owner.id}\n`));
 };

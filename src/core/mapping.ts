@@ -1,6 +1,5 @@
-import type { AbsolutePath, ProfileId, StoreV2 } from "../types.ts";
-import { isCaseInsensitive, unsafeAbsolutePath } from "./paths.ts";
-import { toProfileId } from "./profile.ts";
+import type { AbsolutePath, ProfileId, ResolutionState, StoreV2 } from "../types.ts";
+import { isCaseInsensitive } from "./paths.ts";
 
 export interface MappingEntry {
   readonly path: AbsolutePath;
@@ -21,18 +20,36 @@ export interface MappingTable {
   readonly fallback: FallbackEntry | null;
 }
 
+/**
+ * `local-override`는 순수 해석기가 낼 수 없는 상태다 — 저장소의 로컬 `[user]`를 읽어야
+ * 알 수 있고, 그건 셸 스니펫과 `status`의 몫이다. 그래도 `ResolutionState`에서 빼내는
+ * 방식으로 적어 두면 상태를 하나 추가할 때 여기도 같이 걸린다.
+ */
 export interface Resolved {
-  readonly state: "mapped" | "default" | "no-identity";
+  readonly state: Exclude<ResolutionState, "local-override">;
   readonly profileId: ProfileId | null;
   readonly color: string | null;
   readonly email: string | null;
 }
 
+/**
+ * git은 `gitdir:` 패턴을 wildmatch로 해석한다. 디렉토리 이름에 들어 있는 `*` `?` `[` `]`가
+ * 리터럴이 아니라 와일드카드가 된다는 뜻이다. git 2.50에서 실측한 결과:
+ *
+ *   `star*dir`   -> 남남인 `starOTHERdir`까지 매칭된다(엉뚱한 identity로 커밋된다)
+ *   `proj [old]` -> 문자 클래스로 읽혀 아무것도 매칭되지 않는다
+ *
+ * 어느 쪽이든 `matches()`의 리터럴 접두어 비교와 답이 갈리므로 불변조건 5와 6이 동시에
+ * 깨진다. 게다가 평범하게 이름 붙인 디렉토리 하나로 재현된다. wildmatch는 백슬래시
+ * 이스케이프를 지원하고, 평범한 문자를 이스케이프해도 결과가 달라지지 않는다.
+ */
+const escapeWildmatch = (target: string): string => target.replaceAll(/[*?[\]\\]/g, "\\$&");
+
 /** 후행 슬래시가 git에게 `**`를 덧붙이게 만들어 하위 전체에 재귀 적용된다. */
 export const conditionFor = (
   target: AbsolutePath,
   caseInsensitive: boolean = isCaseInsensitive(),
-): string => `${caseInsensitive ? "gitdir/i" : "gitdir"}:${target}/`;
+): string => `${caseInsensitive ? "gitdir/i" : "gitdir"}:${escapeWildmatch(target)}/`;
 
 export const buildTable = (store: StoreV2): MappingTable => {
   const entries = store.profiles
@@ -96,7 +113,12 @@ export const resolve = (
   return { state: "no-identity", profileId: null, color: null, email: null };
 };
 
-const assertSerializable = (values: readonly string[]): void => {
+/**
+ * TSV는 탭으로 칸을, 개행으로 줄을 나눈다. 그 두 글자가 값에 들어 있으면 셸이 읽는 표가
+ * 조용히 다른 뜻이 된다. 쓰기 직전이 아니라 **계획 단계에서** 부르는 이유는 sync가
+ * `~/.gitconfig`를 이미 고쳐 놓은 뒤에 여기서 던지면 반쯤 적용된 상태가 남기 때문이다.
+ */
+export const assertSerializable = (values: readonly string[]): void => {
   for (const value of values) {
     if (value.includes("\t") || value.includes("\n")) {
       throw new Error(
@@ -106,41 +128,26 @@ const assertSerializable = (values: readonly string[]): void => {
   }
 };
 
-export const serializeTable = (table: MappingTable): string => {
-  const lines: string[] = [];
+/** 표에 실릴 모든 값을 미리 검사한다. 한 군데라도 걸리면 아무것도 건드리지 않고 멈춘다. */
+export const assertTableSerializable = (table: MappingTable): void => {
   if (table.fallback) {
-    const row = [table.fallback.profileId, table.fallback.color, table.fallback.email];
-    assertSerializable(row);
-    lines.push(["*", ...row].join("\t"));
+    assertSerializable([table.fallback.profileId, table.fallback.color, table.fallback.email]);
   }
   for (const entry of table.entries) {
-    const row = [entry.path, entry.profileId, entry.color, entry.email];
-    assertSerializable(row);
-    lines.push(row.join("\t"));
+    assertSerializable([entry.path, entry.profileId, entry.color, entry.email]);
   }
-  return `${lines.join("\n")}\n`;
 };
 
-export const parseTable = (text: string): MappingTable => {
-  const entries: MappingEntry[] = [];
-  let fallback: FallbackEntry | null = null;
-
-  for (const line of text.split("\n")) {
-    if (line === "") continue;
-    const [first, second, third, fourth] = line.split("\t");
-    if (first === undefined || second === undefined || third === undefined) continue;
-    if (first === "*") {
-      fallback = { profileId: toProfileId(second), color: third, email: fourth ?? "" };
-      continue;
-    }
-    if (fourth === undefined) continue;
-    entries.push({
-      path: unsafeAbsolutePath(first),
-      profileId: toProfileId(second),
-      color: third,
-      email: fourth,
-    });
+export const serializeTable = (table: MappingTable): string => {
+  assertTableSerializable(table);
+  const lines: string[] = [];
+  if (table.fallback) {
+    lines.push(
+      ["*", table.fallback.profileId, table.fallback.color, table.fallback.email].join("\t"),
+    );
   }
-
-  return { entries, fallback };
+  for (const entry of table.entries) {
+    lines.push([entry.path, entry.profileId, entry.color, entry.email].join("\t"));
+  }
+  return `${lines.join("\n")}\n`;
 };

@@ -68,3 +68,47 @@ test("supportsIncludeIf requires git 2.13", () => {
   assert.equal(supportsIncludeIf({ major: 2, minor: 12 }), false);
   assert.equal(supportsIncludeIf({ major: 3, minor: 0 }), true);
 });
+
+/**
+ * 어떤 종료 코드가 "정상"인지는 하위 명령마다 다르다(git 2.50 실측):
+ * `--get` 1, `--unset` 5, `--remove-section` 128, `--list` 0.
+ * 전부 뭉뚱그리면 "설정이 없음"과 "설정 파일이 깨짐"을 구분할 수 없고,
+ * [1,5]로만 좁히면 `--remove-section`이 정상 경로에서 던진다.
+ */
+test("gitOrNull only swallows the exit codes the caller declared", async () => {
+  const file = tempConfig();
+
+  // --get: 키 없음은 1
+  assert.equal(await gitOrNull(["config", "--file", file, "--get", "user.nope"], {}, [1]), null);
+  // 같은 호출도 1을 허용하지 않으면 던진다
+  await assert.rejects(() =>
+    gitOrNull(["config", "--file", file, "--get", "user.nope"], {}, [5]),
+  );
+
+  // --remove-section: 없는 섹션은 128이지 5가 아니다
+  await assert.rejects(
+    () => gitOrNull(["config", "--file", file, "--remove-section", "nope"], {}, [1, 5]),
+    "a [1,5] allowlist would break removeIncludeIf",
+  );
+  assert.equal(
+    await gitOrNull(["config", "--file", file, "--remove-section", "nope"], {}, [128]),
+    null,
+  );
+});
+
+test("gitOrNull surfaces a broken config file instead of reporting 'not set'", async () => {
+  const file = tempConfig();
+  fs.writeFileSync(file, "[user\n\tname = broken\n");
+
+  await assert.rejects(
+    () => gitOrNull(["config", "--file", file, "--get", "user.name"], {}, [1]),
+    /GitError|fatal/,
+  );
+});
+
+test("gitOrNull rethrows when git itself could not run", async () => {
+  await assert.rejects(
+    () => gitOrNull(["--version"], { env: { PATH: "/nonexistent" } }, [1, 5, 128]),
+    "a missing git binary must not look like 'not configured'",
+  );
+});

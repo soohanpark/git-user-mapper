@@ -1,10 +1,9 @@
 import path from "node:path";
 import { input, select } from "@inquirer/prompts";
 import chalk from "chalk";
-import { createContext } from "../core/context.ts";
+import { createContext, syncAndPersist } from "../core/context.ts";
 import { findRepoRoot, toAbsolutePath, unsafeAbsolutePath } from "../core/paths.ts";
 import { uniqueId } from "../core/profile.ts";
-import { applySync } from "../core/sync.ts";
 import type { AbsolutePath, ProfileId, StoreV2 } from "../types.ts";
 import { buildProfile } from "./add.ts";
 
@@ -80,7 +79,7 @@ export const runMap = async (): Promise<void> => {
   }
 
   if (selection === UNMAP) {
-    context.store.write(await applySync(unassignPath(store, here), context.sync));
+    await syncAndPersist(context, unassignPath(store, here));
     process.stdout.write(chalk.green(`✓ Removed the mapping for ${here}\n`));
     return;
   }
@@ -121,7 +120,7 @@ export const runMap = async (): Promise<void> => {
   }
 
   store = assignPath(store, profileId, target);
-  context.store.write(await applySync(store, context.sync));
+  await syncAndPersist(context, store);
 
   process.stdout.write(chalk.green(`✓ ${target} → ${profileId}\n`));
 };

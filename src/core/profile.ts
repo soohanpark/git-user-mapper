@@ -30,8 +30,11 @@ export const slugify = (source: string): string => {
 export const uniqueId = (desired: string, taken: ReadonlySet<string>): ProfileId => {
   const base = slugify(desired);
   if (!taken.has(base)) return toProfileId(base);
+  // 잘라 내는 길이를 접미사에 맞춘다. 30자로 고정하면 두 자리 접미사에서 33자가 되어
+  // 스스로 만든 id가 자기 패턴에 걸린다.
   for (let suffix = 2; ; suffix += 1) {
-    const candidate = `${base.slice(0, 30)}-${suffix}`;
+    const tail = `-${suffix}`;
+    const candidate = `${base.slice(0, 32 - tail.length)}${tail}`;
     if (!taken.has(candidate)) return toProfileId(candidate);
   }
 };

@@ -57,21 +57,37 @@ export const git = async (args: readonly string[], options: GitOptions = {}): Pr
 };
 
 /**
- * 값이 없는 상태를 오류가 아니라 값으로 다룬다. `git config --get`은 키가 없으면 1로,
- * `--remove-section`·`--unset`은 대상이 없으면 5로 끝난다. 둘 다 정상 경로다.
+ * 값이 없는 상태를 오류가 아니라 값으로 다룬다. 다만 **어떤 종료 코드가 정상인지는
+ * 호출하는 하위 명령마다 다르므로** 호출자가 직접 정한다. git 2.50에서 실측한 값:
  *
- * 다만 git이 **실행조차 되지 않은** 경우(바이너리 없음, 권한 문제)와 우리 인자 검증이
- * 막은 경우는 호출자 버그거나 환경 문제다. 그것까지 null로 뭉개면 "설정이 없음"과
- * "무언가 고장남"을 호출자가 구분할 수 없으므로 그대로 던진다.
+ *   `--get` 키 없음                1
+ *   `--unset` 대상 없음            5
+ *   `--remove-section` 섹션 없음   128
+ *   `--list` 설정이 비어 있음      0
+ *   위 전부, 설정 파일이 깨졌을 때 128
+ *
+ * 그래서 모든 0이 아닌 코드를 뭉뚱그리면 "설정이 없음"과 "설정 파일이 깨짐"을 구분할 수
+ * 없다 — 불변조건 7이 막으려던 바로 그 혼동이다. 반대로 [1,5]로 좁히면
+ * `--remove-section`이 정상 경로에서 던진다. 목록을 호출 지점에 두는 이유다.
+ *
+ * git이 **실행조차 되지 않은** 경우(바이너리 없음)와 인자 검증에 걸린 경우는 exitCode가
+ * 없으므로 언제나 그대로 던진다.
  */
 export const gitOrNull = async (
   args: readonly string[],
   options: GitOptions = {},
+  allowedExitCodes: readonly number[] = [1],
 ): Promise<string | null> => {
   try {
     return await git(args, options);
   } catch (error) {
-    if (error instanceof GitError && error.exitCode !== undefined) return null;
+    if (
+      error instanceof GitError &&
+      error.exitCode !== undefined &&
+      allowedExitCodes.includes(error.exitCode)
+    ) {
+      return null;
+    }
     throw error;
   }
 };

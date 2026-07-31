@@ -1,9 +1,10 @@
 import chalk from "chalk";
-import { createContext } from "../core/context.ts";
-import { applySync, describePlan, planSync } from "../core/sync.ts";
+import { createContext, syncAndPersist } from "../core/context.ts";
+import { describePlan, planSync } from "../core/sync.ts";
 
 export const runSync = async (options: { readonly dryRun: boolean }): Promise<void> => {
-  const context = await createContext();
+  // --dry-run은 정말로 아무것도 쓰지 않는다. 스토어 마이그레이션도 예외가 아니다.
+  const context = await createContext({ readOnly: options.dryRun });
   const store = context.store.read();
 
   if (options.dryRun) {
@@ -11,6 +12,6 @@ export const runSync = async (options: { readonly dryRun: boolean }): Promise<vo
     return;
   }
 
-  context.store.write(await applySync(store, context.sync));
+  await syncAndPersist(context, store);
   process.stdout.write(chalk.green("✓ Synced\n"));
 };

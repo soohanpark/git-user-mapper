@@ -36,10 +36,16 @@ export const toAbsolutePath = (input: string, cwd: string = process.cwd()): Abso
   return unsafeAbsolutePath(stripTrailingSlash(normalizeSeparators(real)));
 };
 
+/** 빈 문자열은 설정되지 않은 것으로 본다. git도 그렇게 다루고, 그러지 않으면 상대경로가 나온다. */
+const xdgConfigHome = (env: NodeJS.ProcessEnv, home: string): string =>
+  env.XDG_CONFIG_HOME === undefined || env.XDG_CONFIG_HOME === ""
+    ? path.join(home, ".config")
+    : env.XDG_CONFIG_HOME;
+
 export const configDir = (
   env: NodeJS.ProcessEnv = process.env,
   home: string = os.homedir(),
-): string => path.join(env.XDG_CONFIG_HOME ?? path.join(home, ".config"), APP_DIR);
+): string => path.join(xdgConfigHome(env, home), APP_DIR);
 
 export const profilesDir = (env?: NodeJS.ProcessEnv, home?: string): string =>
   path.join(configDir(env, home), "profiles");
@@ -50,8 +56,30 @@ export const backupsDir = (env?: NodeJS.ProcessEnv, home?: string): string =>
 export const mappingFilePath = (env?: NodeJS.ProcessEnv, home?: string): string =>
   path.join(configDir(env, home), "mapping.tsv");
 
-export const globalGitConfigPath = (home: string = os.homedir()): string =>
-  path.join(home, ".gitconfig");
+/**
+ * `git config --global`이 실제로 쓰는 파일. `~/.gitconfig`로 단정하면 안 된다 —
+ * git 2.50에서 확인한 동작은 이렇다: `~/.gitconfig`가 없고 `~/.config/git/config`가
+ * 있으면 쓰기는 XDG 쪽으로 간다. 그 경우 `~/.gitconfig`를 백업하려 들면 대상이 없어
+ * 백업이 조용히 건너뛰어지고, 정작 수정되는 파일은 백업 없이 바뀐다(불변조건 3).
+ *
+ * 우선순위는 git과 같다: `GIT_CONFIG_GLOBAL` → 있으면 `~/.gitconfig` →
+ * 있으면 `$XDG_CONFIG_HOME/git/config` → 둘 다 없으면 git이 새로 만들 `~/.gitconfig`.
+ */
+export const globalGitConfigPath = (
+  env: NodeJS.ProcessEnv = process.env,
+  home: string = os.homedir(),
+): string => {
+  const override = env.GIT_CONFIG_GLOBAL;
+  if (override !== undefined && override !== "") return override;
+
+  const legacy = path.join(home, ".gitconfig");
+  if (fs.existsSync(legacy)) return legacy;
+
+  const xdg = path.join(xdgConfigHome(env, home), "git", "config");
+  if (fs.existsSync(xdg)) return xdg;
+
+  return legacy;
+};
 
 /** `.git`이 디렉토리든 파일이든 저장소 루트로 본다(worktree·submodule 포함). */
 export const findRepoRoot = (start: AbsolutePath): AbsolutePath | null => {
