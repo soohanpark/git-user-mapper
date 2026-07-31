@@ -1,48 +1,57 @@
-# Git User Switch
+# git-user-mapper
 
-Switch git user, email and signingKey at ease.
+Map directories to git identities, and see which one is active in your shell prompt.
 
-<img src="https://thumbs.gfycat.com/OfficialLiveImago-size_restricted.gif">
+Register `~/dev/personal` once and every repository under it commits with your personal
+identity — in the terminal, in your IDE, and in GUI clients. There is nothing to remember
+and nothing to run per repository.
 
+> Forked from [geongeorge/Git-User-Switch](https://github.com/geongeorge/Git-User-Switch) (MIT).
+> That tool writes the selected identity into the current repository's `.git/config`.
+> This one manages `includeIf` mappings in `~/.gitconfig` instead and never touches a
+> repository's local config. On first run it imports the profiles you had there.
 
-### Install
+## Install
 
-```
-npm i -g git-user-switch
-```
+    npm i -g git-user-mapper
 
-### Usage
+Requires git 2.13+ and Node 22.18+.
 
-```
-Usage: git-user [options]
+## Use
 
-Switch git users quickly. Switches locally by default
+    git-mapper              # map the current directory to a profile
+    git-mapper status       # what applies here, cross-checked against git
+    git-mapper list         # profiles and mappings
+    git-mapper add          # add a profile
+    git-mapper default      # set the fallback identity
+    git-mapper sync         # regenerate everything (--dry-run to preview)
 
-Options:
-  -V, --version  output the version number
-  -g, --global   Switch global git user
-  -d, --delete   Delete a git user from the listing
-  -r, --reset    Deletes all data and resets
-  -h, --help     display help for command
-```
+The binary is `git-mapper`, so `git mapper status` works too.
 
+## Prompt
 
-### Troubleshoot
+    # ~/.zshrc
+    eval "$(git-mapper shell-init zsh)"
 
-In case this messes up any of your git configs because of bad input.
-Just edit:
+With Powerlevel10k, add `git_mapper` to `POWERLEVEL9K_RIGHT_PROMPT_ELEMENTS`. With any
+other theme, use `$GIT_MAPPER_PROFILE` and `$GIT_MAPPER_STATE` in your own prompt. `bash`
+and `fish` are supported too.
 
-*Global* : `~/.gitconfig`
-*Local Project* : `project/.git/config`
+The segment reads a small generated table with no subprocess, so it costs nothing per
+prompt. It shows the mapped profile, marks the fallback as `(default)`, and warns when a
+repository's local `[user]` overrides the mapping. A test runs the generated matcher
+against real git to make sure the two never disagree.
 
-```
-[user]
-	email = geongeorgexyz@gmail.com
-	name = Geon George
-```
+## What it writes
 
-You can additionally reset the cli data store by running:
+    ~/.gitconfig                                     includeIf entries (only its own)
+    ~/.config/git-user-mapper/profiles/<id>.gitconfig
+    ~/.config/git-user-mapper/mapping.tsv
+    ~/.config/git-user-mapper/backups/               ~/.gitconfig backups, mode 0600
 
-```sh
-git-user -r
-```
+It never edits `~/.gitconfig` as text — all writes go through `git config --global` — and
+it never touches a repository's `.git/config`.
+
+## License
+
+MIT. See [LICENSE](LICENSE), which retains the original copyright.
