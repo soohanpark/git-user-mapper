@@ -1,79 +1,281 @@
 # git-user-mapper
 
-Map directories to git identities, and see which one is active in your shell prompt.
+Use the right Git identity automatically based on where a repository lives, and show the
+active profile in your shell prompt.
 
-Register `~/dev/personal` once and every repository under it commits with your personal
-identity — in the terminal, in your IDE, and in GUI clients. There is nothing to remember
-and nothing to run per repository.
+Map `~/dev/work` once and every repository below it uses your work name, email, and
+optional signing key. Map `~/dev/personal` to another profile and Git switches identities
+when you change directories—without rewriting each repository's local config or relying
+on a terminal-only wrapper.
 
-> Forked from [geongeorge/Git-User-Switch](https://github.com/geongeorge/Git-User-Switch) (MIT).
-> That tool writes the selected identity into the current repository's `.git/config`.
-> This one manages `includeIf` mappings in `~/.gitconfig` instead and never touches a
-> repository's local config. See [Upgrading](#upgrading-from-git-user-switch) below.
+`git-user-mapper` uses Git's own conditional includes, so the same identity applies in
+the terminal, IDEs, and GUI clients.
+
+## Requirements
+
+- Git 2.13 or newer
+- Node.js 22.18 or newer
+- zsh or bash for the optional prompt integration
 
 ## Install
 
-    npm i -g git-user-mapper
+```sh
+npm install --global git-user-mapper
+git-mapper --version
+```
 
-Requires git 2.13+ and Node 22.18+.
+The npm package is named `git-user-mapper`; the installed command is `git-mapper`.
+Because it is a Git-style command, `git mapper status` works too.
 
-## Use
+## Quick start
 
-    git-mapper              # map the current directory to a profile
-    git-mapper status       # what applies here, cross-checked against git
-    git-mapper list         # profiles and mappings
-    git-mapper add          # add a profile
-    git-mapper remove [id]  # remove a profile and its mappings
-    git-mapper unmap [path] # remove a directory mapping
-    git-mapper default [id] # set the fallback identity
-    git-mapper sync         # regenerate everything (--dry-run to preview)
-    git-mapper reset        # remove all profiles and mappings
+### 1. Add a profile
 
-The binary is `git-mapper`, so `git mapper status` works too.
+```sh
+git-mapper add
+```
 
-`status` exits 0 when everything is consistent, 2 when it printed a warning, and 1 outside
-a repository with `--porcelain`.
+Enter the Git user name, email, optional GPG signing key, and a short profile id such as
+`work` or `personal`. The id is what appears in the prompt.
 
-## Prompt
+### 2. Map a directory
 
-    # ~/.zshrc
-    eval "$(git-mapper shell-init zsh)"
+From a repository below the directory you want to map, run:
 
-With Powerlevel10k, add `git_mapper` to `POWERLEVEL9K_RIGHT_PROMPT_ELEMENTS`. With any
-other theme, use `$GIT_MAPPER_PROFILE` and `$GIT_MAPPER_STATE` in your own prompt. `bash`
-is supported too.
+```sh
+cd ~/dev/work/my-project
+git-mapper
+```
 
-The segment reads a small generated table and runs no external command, so it is cheap per
-prompt — zsh spawns nothing at all, bash forks one subshell for `pwd -P`. It shows the
-mapped profile, marks the fallback as `(default)`, and warns when a repository's local
-`[user]` overrides the mapping. A parity test runs the generated matcher for both shells
-against real git to make sure the two never disagree.
+Choose a profile, then choose whether it should apply only to this repository, to the
+whole parent directory, or to another directory. Running `git-mapper` with no subcommand
+is the same as `git-mapper map`.
 
-## Upgrading from git-user-switch
+A parent-directory mapping covers repositories below it. For example, mapping
+`~/dev/work` once covers both `~/dev/work/api` and `~/dev/work/web`.
 
-Two things carry over from the old tool, and one of them will bite you:
+### 3. Set a fallback identity (optional)
 
-1. **Identities it wrote into repositories stay there.** The old tool set `user.email` in
-   each repository's `.git/config`, and local config beats `includeIf`. So every repository
-   it ever touched keeps its old identity and ignores your new mappings. `git-mapper
-   status` reports this as `local-override`; clear it per repository with:
+```sh
+git-mapper default personal
+```
 
-       git config --unset user.email && git config --unset user.name
+The default profile is used when no directory mapping matches. If you do not set one,
+Git's existing global `[user]` identity remains the fallback when present.
 
-2. **Your profiles are imported automatically.** They come from the old tool's own store
-   (`conf` derives its location from the package name, so the rename moved it). The
-   original file is read once and never written to, so `git-user-switch` keeps working.
+### 4. Verify the result
 
-## What it writes
+```sh
+git-mapper status
+git config user.name
+git config user.email
+```
 
-    ~/.gitconfig                                     includeIf entries (only its own)
-    ~/.config/git-user-mapper/profiles/<id>.gitconfig
-    ~/.config/git-user-mapper/mapping.tsv
-    ~/.config/git-user-mapper/backups/               ~/.gitconfig backups, mode 0600
+`status` shows the repository root, resolved profile, state, email, and any configuration
+warnings. The `git config` commands show the identity Git will actually use.
 
-Every write goes through `git config`, so git owns the escaping — it never assembles config
-text itself, and it never touches a repository's `.git/config`. If `~/.gitconfig` does not
-exist but `~/.config/git/config` does, git writes to the latter and so does this tool.
+## Prompt integration
+
+The prompt integration reads a generated mapping table and does not run Git on every
+prompt. It supports zsh and bash.
+
+### zsh with Powerlevel10k
+
+Add this to `~/.zshrc`:
+
+```zsh
+eval "$(git-mapper shell-init zsh)"
+```
+
+Then add `git_mapper` to `POWERLEVEL9K_RIGHT_PROMPT_ELEMENTS` in `~/.p10k.zsh`:
+
+```zsh
+typeset -g POWERLEVEL9K_RIGHT_PROMPT_ELEMENTS=(
+  # ...your existing segments...
+  git_mapper
+)
+```
+
+### Other zsh themes
+
+Add the same initialization command to `~/.zshrc`:
+
+```zsh
+eval "$(git-mapper shell-init zsh)"
+```
+
+The snippet refreshes `GIT_MAPPER_PROFILE`, `GIT_MAPPER_STATE`, and
+`GIT_MAPPER_COLOR` before every prompt. Use those variables in your theme.
+
+### bash
+
+Add this to the startup file used by your interactive shell, usually `~/.bashrc`:
+
+```bash
+eval "$(git-mapper shell-init bash)"
+```
+
+The snippet refreshes the same `GIT_MAPPER_PROFILE`, `GIT_MAPPER_STATE`, and
+`GIT_MAPPER_COLOR` variables through `PROMPT_COMMAND`.
+
+After changing a shell startup file, open a new terminal or reload the shell:
+
+```sh
+exec zsh  # or: exec bash
+```
+
+Existing terminal sessions do not load newly added prompt integration automatically.
+
+### Prompt states
+
+| State | Meaning |
+|---|---|
+| `mapped` | A directory mapping selected the profile. |
+| `default` | No mapping matched, so the fallback identity applies. |
+| `local-override` | The repository has a different local `[user]` email, which wins over the mapping. |
+| `no-identity` | Neither a mapping, fallback, nor local identity was found. |
+
+Powerlevel10k renders mapped and default profile ids, marks the fallback with `(default)`,
+and displays warnings for `local-override` and `no-identity`.
+
+## Commands
+
+| Command | Description |
+|---|---|
+| `git-mapper` | Map the current repository or directory interactively. |
+| `git-mapper map` | Same as running `git-mapper` with no subcommand. |
+| `git-mapper status [--porcelain]` | Show what applies here and cross-check it against Git. |
+| `git-mapper list` | List profiles and their directory mappings. |
+| `git-mapper add` | Add a profile. |
+| `git-mapper remove [id]` | Remove a profile and all mappings that use it. |
+| `git-mapper unmap [path]` | Remove a mapping; defaults to the current repository or directory. |
+| `git-mapper default [id]` | Choose the fallback profile. |
+| `git-mapper sync [--dry-run]` | Regenerate managed Git config and prompt data. |
+| `git-mapper shell-init <zsh\|bash>` | Print the prompt integration for a supported shell. |
+| `git-mapper reset` | Remove all profiles and mappings while keeping the global `[user]`. |
+
+`remove` and `default` prompt for a profile when `[id]` is omitted. Run
+`git-mapper <command> --help` for command-specific help.
+
+Human-readable `status` exits with code 2 when it finds configuration warnings and 0
+otherwise. `status --porcelain` prints a tab-separated
+`<profile>\t<state>\t<email>` line and exits with code 1 outside a repository.
+
+## How identity resolution works
+
+Mappings are stored as absolute directory prefixes (`~` in interactive path input is
+expanded). When mappings overlap, the longest matching path wins:
+
+```text
+~/dev            → personal
+~/dev/client-a   → work
+```
+
+A repository under `~/dev/client-a` uses `work`; other repositories under `~/dev` use
+`personal`. Paths are matched literally, so characters such as `*`, `?`, `[`, and `]` do
+not act as globs.
+
+Git resolves identities in this order:
+
+1. A repository-local `[user]` value in `.git/config` has the highest priority.
+2. The longest matching directory mapping applies next.
+3. The configured default profile—or an existing unmanaged global `[user]`—is the
+   fallback.
+
+Map a repository root or a directory above it. Mapping a subdirectory inside a repository
+has no effect because Git evaluates `includeIf "gitdir:"` against the repository's Git
+directory.
+
+## Troubleshooting
+
+### The prompt does not appear
+
+Reload the shell after adding `shell-init`. In zsh, confirm that the integration function
+is loaded:
+
+```zsh
+echo ${+functions[prompt_git_mapper]}
+```
+
+It should print `1`. With Powerlevel10k, also confirm that `git_mapper` is present in
+`POWERLEVEL9K_RIGHT_PROMPT_ELEMENTS`. Then run `git-mapper status` inside a repository to
+check the resolved profile independently of the prompt.
+
+### `local-override` appears
+
+The repository has its own identity, and local Git config takes precedence over directory
+mappings. Inspect it with:
+
+```sh
+git config --local --get-regexp '^user\.'
+```
+
+If those values are stale, remove them from that repository:
+
+```sh
+git config --local --unset user.name
+git config --local --unset user.email
+git config --local --unset user.signingKey
+```
+
+The last command may exit nonzero when no signing key exists; that is harmless.
+
+### `no-identity` appears
+
+Map the repository with `git-mapper`, or select a fallback with `git-mapper default`.
+
+### Status reports stale or inconsistent files
+
+Preview the repair, then regenerate all derived files:
+
+```sh
+git-mapper sync --dry-run
+git-mapper sync
+```
+
+In linked worktrees and submodules, `.git` is a file rather than a directory. The prompt
+can still resolve directory mappings, but it cannot inspect the repository-local identity
+there. Use `git-mapper status` to cross-check the mapping against Git.
+
+## Files and safety
+
+The profile store is the source of truth. `git-mapper sync` derives the following files
+from it:
+
+```text
+~/.gitconfig                                      managed includeIf entries and fallback user
+$XDG_CONFIG_HOME/git-user-mapper/profiles/<id>.gitconfig one [user] block per mapped profile
+$XDG_CONFIG_HOME/git-user-mapper/mapping.tsv             prompt lookup table
+$XDG_CONFIG_HOME/git-user-mapper/backups/                global Git config backups
+```
+
+`$XDG_CONFIG_HOME` defaults to `~/.config`. If `~/.gitconfig` does not exist but
+`$XDG_CONFIG_HOME/git/config` does, Git writes to the XDG path and `git-user-mapper` backs
+up and updates that file instead.
+
+Safety guarantees:
+
+- Git config files are written through `git config`, not assembled as text.
+- An existing global Git config is backed up before it is changed. Backups use a private
+  `0700` directory and `0600` files, and up to ten distinct snapshots are retained.
+- Only `includeIf` entries recorded as managed by this tool are removed.
+- Repository-local `.git/config` files are never modified.
+- `reset` removes managed profiles and mappings but intentionally leaves the global
+  `[user]` identity in place.
+
+## Migrating from git-user-switch
+
+`git-user-mapper` was forked from
+[geongeorge/Git-User-Switch](https://github.com/geongeorge/Git-User-Switch), but it uses a
+different mapping model. Two migration details matter:
+
+1. Profiles from the old tool are imported automatically when the new store is empty.
+   The original store is read once and never modified, so `git-user-switch` can continue
+   to use it.
+2. Repository-local identities written by the old tool remain in `.git/config` and take
+   precedence over new directory mappings. `git-mapper status` reports these as
+   `local-override`; remove the stale local values as described in
+   [Troubleshooting](#local-override-appears).
 
 ## License
 
