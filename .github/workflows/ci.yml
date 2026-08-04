@@ -1,0 +1,51 @@
+name: ci
+
+on:
+  push:
+    branches: [master, develop]
+  pull_request:
+
+# 릴리스 때 처음 CI를 돌리면, 플랫폼 차이를 하필 배포 순간에 발견하게 된다.
+# publish.yml과 같은 관문을 평소에도 돌려 둔다.
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 22는 package.json의 engines 하한(타입 스트리핑이 처음 기본 활성화된 줄기)이고,
+        # 24는 개발에 쓰는 줄기다. 둘 다 깨지지 않아야 한다.
+        node: [22, 24]
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      # parity 스위트는 설치되지 않은 셸을 조용히 건너뛴다. zsh 없이 돌리면
+      # "프롬프트가 git과 같은 답을 낸다"는 주장의 절반이 검증되지 않은 채 초록불이 된다.
+      - name: Install zsh
+        run: sudo apt-get update && sudo apt-get install -y zsh
+
+      - run: npm ci
+
+      - run: npm run lint
+
+      - run: npm run typecheck
+
+      - name: Test
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee test.log
+
+      # AGENTS.md: 초록불이 곧 "모든 셸을 돌렸다"는 뜻은 아니다. skip 수를 확인한다.
+      - name: Fail if any test was skipped
+        run: |
+          if ! grep -q '^ℹ skipped 0$' test.log; then
+            echo "::error::a test was skipped — the parity claim is only as good as the shells that ran"
+            grep -E '^ℹ (tests|pass|fail|skipped)' test.log
+            exit 1
+          fi
