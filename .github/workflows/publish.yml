@@ -6,9 +6,12 @@ on:
 
 permissions:
   contents: read
-  # npm provenance(어느 커밋에서 어떤 워크플로우가 빌드했는지 서명)를 붙이는 데 필요하다.
+  # OIDC. npm은 이 토큰으로 "이 워크플로우가 맞다"를 확인한다 — trusted publishing의 전부다.
+  # 저장소에 npm 자격증명을 저장하지 않으므로 유출될 것도, 돌릴 것도 없다.
   id-token: write
 
+# npmjs.com의 패키지 설정에 Trusted Publisher로 이 파일 이름(publish.yml)이 등록되어 있다.
+# 파일을 옮기거나 이름을 바꾸면 배포가 인증에 실패한다. 그때는 npm 쪽 설정도 같이 고칠 것.
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -18,16 +21,28 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          # engines의 하한. 여기서 통과하면 그 위 줄기도 통과한다.
-          node-version: 22
+          # trusted publishing은 npm 11.5.1+를 요구하는데 node 22 줄기는 npm 10.9.x를
+          # 끼워 배포한다. engines 하한(22)에서 도는지는 ci.yml 매트릭스가 매 push마다 본다.
+          node-version: 24
           registry-url: https://registry.npmjs.org
-          cache: npm
 
       # 없으면 parity의 zsh 케이스가 전부 skip된 채 초록불이 나온다.
       - name: Install zsh
         run: sudo apt-get update && sudo apt-get install -y zsh
 
       - run: npm ci
+
+      # 너무 낡은 npm은 OIDC를 모르고 그냥 인증 실패로 끝난다. 그 오류만 보면 원인을
+      # 짚기 어려우므로 여기서 먼저 이름을 대며 멈춘다.
+      - name: npm must be new enough to publish over OIDC
+        run: |
+          have="$(npm --version)"
+          need="11.5.1"
+          echo "npm ${have} (needs >= ${need})"
+          if [ "$(printf '%s\n%s\n' "$need" "$have" | sort -V | head -1)" != "$need" ]; then
+            echo "::error::npm ${have} is too old for trusted publishing"
+            exit 1
+          fi
 
       # 태그가 붙었다고 검증을 건너뛰지 않는다. 배포는 되돌리기 가장 비싼 동작이다.
       - run: npm run lint
@@ -47,14 +62,14 @@ jobs:
         run: |
           tagged="${GITHUB_REF_NAME#v}"
           declared="$(node -p "require('./package.json').version")"
-          echo "tag=$tagged package.json=$declared"
+          echo "tag=${tagged} package.json=${declared}"
           if [ "$tagged" != "$declared" ]; then
             echo "::error::tag ${GITHUB_REF_NAME} does not match package.json ${declared}"
             exit 1
           fi
 
+      # NODE_AUTH_TOKEN이 없다. npm CLI가 OIDC 토큰을 스스로 찾아 쓴다.
+      # 공개 저장소의 공개 패키지라 provenance도 따로 붙이지 않아도 자동으로 생성된다.
       # prepack이 `npm run build`를 돌리므로 dist/는 여기서 만들어진다.
       - name: Publish
-        run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish
