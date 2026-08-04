@@ -1,22 +1,47 @@
 import { posixSingleQuote } from "./quote.ts";
+import {
+  CONFIG_FN,
+  GITDIR_FN,
+  LOCAL_EMAIL_FN,
+  LOWER_FN,
+  NORMALIZE_FN,
+  VALUE_FN,
+} from "./snippet.ts";
 import type { ShellInitOptions } from "./zsh.ts";
 
 export const bashSnippet = (options: ShellInitOptions): string => {
-  // bash 3.2(macOS 기본)에는 ${var,,}가 없다. nocasematch는 내장 옵션이라 fork가 없다.
-  // 사용자가 켜 두었을 수도 있으므로 원래 값을 기억했다가 되돌린다.
-  const enable = options.caseInsensitive
-    ? "  local _gm_nocase=1\n  shopt -q nocasematch || _gm_nocase=0\n  shopt -s nocasematch\n"
-    : "";
-  const restore = options.caseInsensitive ? "  (( _gm_nocase )) || shopt -u nocasematch\n" : "";
+  const fold = options.caseInsensitive;
+  const target = fold
+    ? '_git_mapper_lower "$_gm_gitdir"\n  target="$REPLY"'
+    : 'target="$_gm_gitdir"';
+  const cand = fold ? '_git_mapper_lower "$p"; cand="$REPLY"' : 'cand="$p"';
 
   return `# git-user-mapper shell integration (bash)
 _git_mapper_file=${posixSingleQuote(options.mappingFile)}
 
+${LOWER_FN}
+
+${NORMALIZE_FN}
+
+${GITDIR_FN}
+
+${VALUE_FN}
+
+${CONFIG_FN}
+
+${LOCAL_EMAIL_FN}
+
 _git_mapper_resolve() {
   GIT_MAPPER_PROFILE=''; GIT_MAPPER_STATE=''; GIT_MAPPER_COLOR=''
 
+  # 보조 함수들이 값을 돌려주는 자리. local이라 사용자 환경에 남지 않는다.
+  local REPLY='' _gm_gitdir='' _gm_commondir='' _gm_email='' _gm_worktree_config=''
+
   local root='' d
-  d="$(pwd -P)"
+  # 현재 디렉토리가 지워지면 pwd가 stderr로 getcwd 오류를 뱉는다. PROMPT_COMMAND의
+  # 첫 자리라 사용자가 cd로 빠져나갈 때까지 프롬프트마다 그 줄이 찍혔다.
+  d="$(pwd -P 2>/dev/null)" || d="$PWD"
+  [[ -n "$d" ]] || d="$PWD"
   while :; do
     if [[ -e "$d/.git" ]]; then root="$d"; break; fi
     [[ "$d" == / ]] && break
@@ -25,36 +50,32 @@ _git_mapper_resolve() {
   done
   [[ -n "$root" ]] || return 1
 
+  # git이 실제로 보는 GIT_DIR을 먼저 찾는다. 매핑 판정은 작업 트리가 아니라 이걸로 한다.
+  _git_mapper_gitdir "$root" || return 1
+
   # 저장소의 로컬 [user]를 먼저 읽는다. 표가 아무 답을 못 내도 이 값이 있으면
   # git은 그걸로 커밋하므로, 여기서 "identity 없음"이라고 단정하면 거짓말이 된다.
-  local local_email='' line section=''
-  if [[ -d "$root/.git" && -r "$root/.git/config" ]]; then
-    while IFS= read -r line; do
-      line="\${line//[[:blank:]]/}"
-      case "$line" in
-        '[user]') section=user ;;
-        '['*) section='' ;;
-        'email='*) [[ "$section" == user ]] && local_email="\${line#email=}" ;;
-      esac
-    done < "$root/.git/config"
-  fi
+  _git_mapper_local_email
+  local local_email="$_gm_email"
 
-  local p pid color email
+  local p pid color email cand target
   local best_id='' best_color='' best_email='' best_len=-1
   local fb_id='' fb_color='' fb_email=''
+  ${target}
 
   if [[ -r "$_git_mapper_file" ]]; then
-${enable}    while IFS=$'\\t' read -r p pid color email; do
+    while IFS=$'\\t' read -r p pid color email; do
       [[ -z "$p" ]] && continue
       if [[ "$p" == '*' ]]; then
         fb_id="$pid"; fb_color="$color"; fb_email="$email"
         continue
       fi
-      if [[ "$root" == "$p" || "$root" == "$p"/* ]] && (( \${#p} > best_len )); then
+      ${cand}
+      if [[ "$target" == "$cand" || "$target" == "$cand"/* ]] && (( \${#p} > best_len )); then
         best_id="$pid"; best_color="$color"; best_email="$email"; best_len=\${#p}
       fi
     done < "$_git_mapper_file"
-${restore}  fi
+  fi
 
   local applied_id='' applied_email='' applied_color='' state=''
   if (( best_len >= 0 )); then

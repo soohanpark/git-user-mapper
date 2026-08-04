@@ -71,7 +71,11 @@ const gitEmail = async (dir: string, env: NodeJS.ProcessEnv): Promise<string | n
 
 /** @param prefix mkdtemp 접두사. 홈 경로에 특수문자가 든 경우를 만들 때 쓴다. */
 const setup = async (
-  options: { readonly withDefault?: boolean; readonly prefix?: string } = {},
+  options: {
+    readonly withDefault?: boolean;
+    readonly prefix?: string;
+    readonly caseInsensitive?: boolean;
+  } = {},
 ): Promise<Harness> => {
   const base = fs.realpathSync(
     fs.mkdtempSync(path.join(os.tmpdir(), options.prefix ?? "gum-parity-")),
@@ -81,7 +85,16 @@ const setup = async (
   const env = { GIT_CONFIG_GLOBAL: globalConfigPath, GIT_CONFIG_NOSYSTEM: "1" };
   const configDir = path.join(base, "config");
 
-  for (const dir of ["personal", "personal-old", "msu", "oss/deep", "star*dir", "starOTHERdir"]) {
+  for (const dir of [
+    "personal",
+    "personal-old",
+    "msu",
+    "oss/deep",
+    "star*dir",
+    "starOTHERdir",
+    "CaseDir",
+    "casedir-other",
+  ]) {
     fs.mkdirSync(path.join(base, dir), { recursive: true });
   }
 
@@ -121,6 +134,14 @@ const setup = async (
         color: "cyan",
         paths: [toAbsolutePath(path.join(base, "star*dir"))],
       },
+      {
+        id: id("cased"),
+        name: "n",
+        email: "cased@example.com",
+        signingKey: null,
+        color: "red",
+        paths: [toAbsolutePath(path.join(base, "CaseDir"))],
+      },
     ],
     managedConditions: [],
   };
@@ -129,7 +150,7 @@ const setup = async (
     configDir,
     globalConfigPath,
     now: "t0",
-    caseInsensitive: false,
+    caseInsensitive: options.caseInsensitive === true,
     git: { env },
   });
 
@@ -145,9 +166,10 @@ const resolveIn = async (
   shell: Shell,
   mappingFile: string,
   dir: string,
+  caseInsensitive = false,
 ): Promise<{ readonly profile: string; readonly state: string }> => {
   const script = [
-    shell.snippet({ mappingFile, caseInsensitive: false }),
+    shell.snippet({ mappingFile, caseInsensitive }),
     `cd ${JSON.stringify(dir)}`,
     "_git_mapper_resolve",
     shell.print("GIT_MAPPER_PROFILE"),
@@ -257,6 +279,107 @@ for (const shell of SHELLS) {
 
     const result = await resolveIn(shell, h.mappingFile, repo);
     assert.equal(result.state, "no-identity");
+  });
+
+  /**
+   * git은 `includeIf "gitdir:"`를 작업 트리가 아니라 GIT_DIR로 맞춘다. linked worktree의
+   * GIT_DIR은 주 저장소의 `.git/worktrees/<이름>`이라 두 경로가 아예 다른 서브트리에 있다.
+   * 작업 트리로 맞춰 보면 매핑되지 않은 곳에 만든 워크트리에서 git은 주 저장소의
+   * 프로파일을 쓰는데 프롬프트는 아무것도 없다고(또는 다른 것을) 답한다.
+   */
+  test(`${shell.name}: a linked worktree resolves through the main repository`, {
+    skip,
+  }, async () => {
+    const h = await setup();
+    const main = await makeRepo(path.join(h.base, "personal", "main"));
+    await execa("git", ["commit", "-q", "--allow-empty", "-m", "x"], { cwd: main, env: h.env });
+
+    // 워크트리는 매핑되지 않은 `msu` 아래에 만든다. 작업 트리로 판정하면 `work/default`가 나온다.
+    const worktree = path.join(h.base, "msu", "wt");
+    await execa("git", ["worktree", "add", "-q", worktree], { cwd: main, env: h.env });
+
+    assert.equal(fs.statSync(path.join(worktree, ".git")).isFile(), true);
+
+    const result = await resolveIn(shell, h.mappingFile, worktree);
+    assert.equal(result.state, "mapped");
+    assert.equal(result.profile, "personal");
+    assert.equal(await gitEmail(worktree, h.env), h.emailOf.get("personal"));
+  });
+
+  /**
+   * 워크트리의 GIT_DIR에는 `config`가 없다. 저장소 설정은 주 저장소 쪽에 하나뿐이라
+   * common dir를 보지 않으면 로컬 `[user]`를 통째로 놓친다.
+   */
+  test(`${shell.name}: a worktree sees the shared repository [user]`, { skip }, async () => {
+    const h = await setup();
+    const main = await makeRepo(path.join(h.base, "personal", "shared-cfg"));
+    await execa("git", ["commit", "-q", "--allow-empty", "-m", "x"], { cwd: main, env: h.env });
+    await execa("git", ["config", "user.email", "shared@example.com"], { cwd: main, env: h.env });
+
+    const worktree = path.join(h.base, "msu", "wt-cfg");
+    await execa("git", ["worktree", "add", "-q", worktree], { cwd: main, env: h.env });
+
+    const result = await resolveIn(shell, h.mappingFile, worktree);
+    assert.equal(await gitEmail(worktree, h.env), "shared@example.com");
+    assert.equal(result.state, "local-override");
+    assert.equal(result.profile, "shared@example.com");
+  });
+
+  /**
+   * git이 받아들이는 `.git/config` 표기들. 앞의 셋은 로컬 identity를 통째로 놓치게 만들고
+   * (프롬프트는 매핑된 프로파일을 보여 주는데 git은 다른 값으로 커밋한다), 뒤의 둘은
+   * 값을 망가뜨린다. 마지막 항목은 **git 자신이** 그렇게 써 넣는 모양이다.
+   */
+  test(`${shell.name}: reads every config spelling git accepts`, { skip }, async () => {
+    const spellings: readonly (readonly [string, string, string])[] = [
+      ["header and key on one line", "[user] email = same-line@x.com\n", "same-line@x.com"],
+      ["uppercase section", "[USER]\n\temail = upper@x.com\n", "upper@x.com"],
+      ["uppercase key", "[user]\n\tEMAIL = upkey@x.com\n", "upkey@x.com"],
+      ["trailing comment", "[user]\n\temail = comment@x.com ; note\n", "comment@x.com"],
+      ["quoted value", '[user]\n\temail = "quoted@x.com"\n', "quoted@x.com"],
+      ["no space around =", "[user]\n\temail=nospace@x.com\n", "nospace@x.com"],
+    ];
+
+    for (const [label, text, expected] of spellings) {
+      const h = await setup();
+      const repo = await makeRepo(path.join(h.base, "personal", "spelling"));
+      fs.appendFileSync(path.join(repo, ".git", "config"), text);
+
+      assert.equal(await gitEmail(repo, h.env), expected, `git disagrees for ${label}`);
+      const result = await resolveIn(shell, h.mappingFile, repo);
+      assert.equal(result.state, "local-override", `${shell.name} state for ${label}`);
+      assert.equal(result.profile, expected, `${shell.name} email for ${label}`);
+    }
+  });
+
+  /** git 자신이 값에 `#`이 있으면 따옴표로 감싸 쓴다. 벗기지 않으면 따옴표가 그대로 찍힌다. */
+  test(`${shell.name}: unwraps a value git quoted for us`, { skip }, async () => {
+    const h = await setup();
+    const repo = await makeRepo(path.join(h.base, "personal", "hashed"));
+    await execa("git", ["config", "user.email", "a#b@x.com"], { cwd: repo, env: h.env });
+
+    assert.match(fs.readFileSync(path.join(repo, ".git", "config"), "utf8"), /"a#b@x\.com"/);
+    const result = await resolveIn(shell, h.mappingFile, repo);
+    assert.equal(await gitEmail(repo, h.env), "a#b@x.com");
+    assert.equal(result.profile, "a#b@x.com");
+  });
+
+  /**
+   * darwin·win32에서 실제로 도는 분기다. 예전에는 parity 전체가 `caseInsensitive: false`로만
+   * 돌아서, 사용자 대부분이 쓰는 경로를 어떤 테스트도 실행한 적이 없었다.
+   */
+  test(`${shell.name}: agrees with git when folding case`, { skip }, async () => {
+    const h = await setup({ caseInsensitive: true });
+    for (const dir of ["CaseDir/repo", "casedir-other/repo"]) {
+      const repo = await makeRepo(path.join(h.base, dir));
+      const result = await resolveIn(shell, h.mappingFile, repo, true);
+      const actual = await gitEmail(repo, h.env);
+      assert.equal(
+        h.emailOf.get(result.profile),
+        actual,
+        `${shell.name} says ${result.profile} but git says ${actual} in ${repo}`,
+      );
+    }
   });
 }
 

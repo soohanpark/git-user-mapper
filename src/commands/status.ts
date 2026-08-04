@@ -2,10 +2,17 @@ import fs from "node:fs";
 import path from "node:path";
 import chalk from "chalk";
 import { createContext } from "../core/context.ts";
+import { tableWithGlobalFallback } from "../core/fallback.ts";
 import { gitOrNull, gitVersion, supportsIncludeIf } from "../core/git.ts";
-import { globalKeysInOrder, hasUserAfterIncludeIf } from "../core/gitconfig/globalConfig.ts";
+import {
+  globalEntriesInOrder,
+  hasUserAfterIncludeIf,
+  includeIfConditions,
+} from "../core/gitconfig/globalConfig.ts";
+import { readLocalEmail } from "../core/gitconfig/localUser.ts";
 import { profileFilePath } from "../core/gitconfig/profileFiles.ts";
-import { buildTable, resolve } from "../core/mapping.ts";
+import { gitContextFor } from "../core/gitdir.ts";
+import { resolve } from "../core/mapping.ts";
 import { findRepoRoot, isCaseInsensitive, toAbsolutePath } from "../core/paths.ts";
 import type { AbsolutePath, ProfileId, ResolutionState, StoreV2 } from "../types.ts";
 
@@ -13,8 +20,12 @@ export interface StatusEnvironment {
   readonly gitVersion: { readonly major: number; readonly minor: number };
   readonly keysInOrder: readonly string[];
   readonly gitEmail: string | null;
+  /** `~/.gitconfig`의 `[user] email`. 표의 fallback을 `sync`와 같게 만드는 데 쓴다. */
+  readonly globalEmail: string | null;
   readonly localEmail: string | null;
   readonly repoRoot: AbsolutePath | null;
+  /** git이 `includeIf "gitdir:"`를 맞춰 보는 경로. 매핑 판정은 이걸로 한다. */
+  readonly gitDir: AbsolutePath | null;
   readonly missingProfileFiles: readonly ProfileId[];
   readonly missingPaths: readonly AbsolutePath[];
   readonly pathsInsideRepos: readonly AbsolutePath[];
@@ -57,8 +68,16 @@ export const computeStatus = (
     );
   }
   if (hasUserAfterIncludeIf(env.keysInOrder)) {
+    // `sync`는 자기가 관리하는 조건만 걷어냈다 되달 수 있다. 남의 includeIf가 섞여 있으면
+    // "sync를 돌려라"는 안내가 영원히 고쳐지지 않는 지시가 된다. 실제로 그랬다.
+    const managed = new Set(store.managedConditions);
+    const foreign = includeIfConditions(env.keysInOrder).filter(
+      (condition) => !managed.has(condition),
+    );
     warnings.push(
-      "A [user] section appears after the managed includeIf entries in ~/.gitconfig, so it beats every mapping. Run `git-mapper sync` to restore the order.",
+      foreign.length === 0
+        ? "A [user] section appears after the managed includeIf entries in ~/.gitconfig, so it beats every mapping. Run `git-mapper sync` to restore the order."
+        : `A [user] section appears after includeIf entries in ~/.gitconfig, so it beats every mapping. \`git-mapper sync\` moves the entries it manages, and will also restore these it does not manage: ${foreign.join(", ")}.`,
     );
   }
   for (const id of env.missingProfileFiles) {
@@ -76,11 +95,18 @@ export const computeStatus = (
   }
   warnings.push(...overlaps(store));
 
-  if (env.repoRoot === null) {
+  if (env.repoRoot === null || env.gitDir === null) {
     return { state: "not-a-repo", profileId: null, email: null, repoRoot: null, warnings };
   }
 
-  const matched = resolve(buildTable(store), env.repoRoot, caseInsensitive);
+  // 표는 `sync`가 쓰는 것과 같아야 한다. 관리 대상이 아닌 전역 `[user]`도 실제 fallback이라
+  // 여기서 빠뜨리면 셸은 `default`, `status`는 `local-override`라고 답하게 된다.
+  // 맞춰 보는 대상은 작업 트리가 아니라 GIT_DIR이다 — git이 그렇게 한다.
+  const matched = resolve(
+    tableWithGlobalFallback(store, env.globalEmail),
+    env.gitDir,
+    caseInsensitive,
+  );
 
   // 로컬 [user]가 표의 답과 다르면 실제로 커밋에 쓰이는 건 로컬 쪽이다. 표에 답이 아예
   // 없을 때도 마찬가지다 — 셸 스니펫과 같은 순서로 판단해야 둘이 갈리지 않는다
@@ -123,37 +149,29 @@ export const computeStatus = (
   };
 };
 
-/**
- * 저장소 로컬 `[user].email`을 읽는다. `.git`이 파일인 경우(worktree·submodule)는
- * 설정이 다른 위치에 있으므로 건너뛴다 — 문서화된 한계다.
- */
-const readLocalEmail = (repoRoot: AbsolutePath | null): string | null => {
-  if (repoRoot === null) return null;
-  const gitPath = path.join(repoRoot, ".git");
-  if (!fs.existsSync(gitPath) || !fs.statSync(gitPath).isDirectory()) return null;
-  const configPath = path.join(gitPath, "config");
-  if (!fs.existsSync(configPath)) return null;
-
-  let section = "";
-  for (const raw of fs.readFileSync(configPath, "utf8").split("\n")) {
-    const line = raw.replaceAll(/[ \t]/g, "");
-    if (line === "[user]") section = "user";
-    else if (line.startsWith("[")) section = "";
-    else if (section === "user" && line.startsWith("email=")) return line.slice("email=".length);
-  }
-  return null;
-};
-
 export const inspect = async (store: StoreV2, configDir: string): Promise<StatusEnvironment> => {
-  const repoRoot = findRepoRoot(toAbsolutePath(process.cwd()));
+  const context = gitContextFor(toAbsolutePath(process.cwd()));
+  const repoRoot = context?.repoRoot ?? null;
   const profilesDir = path.join(configDir, "profiles");
+
+  // 전부 읽기라 서로 기다릴 이유가 없다. 순서에 의미가 있는 건 `computeStatus` 안쪽이지
+  // 여기가 아니다(불변조건 6의 "로컬 [user]를 먼저 읽는다"는 판정 순서 이야기다).
+  const [version, entries, gitEmail] = await Promise.all([
+    gitVersion(),
+    globalEntriesInOrder(),
+    repoRoot === null
+      ? Promise.resolve(null)
+      : gitOrNull(["config", "user.email"], { cwd: repoRoot }),
+  ]);
+
   return {
-    gitVersion: await gitVersion(),
-    keysInOrder: await globalKeysInOrder(),
-    gitEmail:
-      repoRoot === null ? null : await gitOrNull(["config", "user.email"], { cwd: repoRoot }),
-    localEmail: readLocalEmail(repoRoot),
+    gitVersion: version,
+    keysInOrder: entries.map((entry) => entry.key),
+    gitEmail,
+    globalEmail: entries.findLast((entry) => entry.key === "user.email")?.value ?? null,
+    localEmail: readLocalEmail(context),
     repoRoot,
+    gitDir: context?.gitDir ?? null,
     missingProfileFiles: store.profiles
       .filter((profile) => profile.paths.length > 0)
       .filter((profile) => !fs.existsSync(profileFilePath(profile.id, profilesDir)))

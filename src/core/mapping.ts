@@ -1,4 +1,5 @@
 import type { AbsolutePath, ProfileId, ResolutionState, StoreV2 } from "../types.ts";
+import { asciiFold } from "./caseFold.ts";
 import { isCaseInsensitive } from "./paths.ts";
 
 export interface MappingEntry {
@@ -87,18 +88,34 @@ export const buildTable = (store: StoreV2): MappingTable => {
 export const withFallback = (table: MappingTable, fallback: FallbackEntry): MappingTable =>
   table.fallback === null ? { entries: table.entries, fallback } : table;
 
+/**
+ * `toLowerCase()`는 유니코드까지 접지만 git의 wildmatch는 ASCII만 접는다. 그 차이 하나로
+ * 비ASCII 디렉토리에서 우리 답과 git의 답이 갈렸다 — `asciiFold`가 그 규칙을 맞춘 것이다.
+ */
 const matches = (entryPath: string, target: string, caseInsensitive: boolean): boolean => {
-  const a = caseInsensitive ? entryPath.toLowerCase() : entryPath;
-  const b = caseInsensitive ? target.toLowerCase() : target;
+  const a = caseInsensitive ? asciiFold(entryPath) : entryPath;
+  const b = caseInsensitive ? asciiFold(target) : target;
   return b === a || b.startsWith(`${a}/`);
 };
 
+/** 이 매핑 경로가 저 GIT_DIR을 덮는가. `map`이 발동하지 않을 매핑을 미리 알아채는 데 쓴다. */
+export const covers = (
+  entryPath: string,
+  gitDir: string,
+  caseInsensitive: boolean = isCaseInsensitive(),
+): boolean => matches(entryPath, gitDir, caseInsensitive);
+
+/**
+ * `gitDir`을 받는다 — 작업 트리가 아니다. git이 `includeIf "gitdir:"`를 맞춰 보는 대상이
+ * `$GIT_DIR`이라서다. linked worktree에서는 둘이 아예 다른 서브트리에 있고, 작업 트리로
+ * 맞춰 보면 git이 절대 고르지 않을 프로파일을 답하게 된다(`core/gitdir.ts` 참고).
+ */
 export const resolve = (
   table: MappingTable,
-  repoRoot: AbsolutePath,
+  gitDir: AbsolutePath,
   caseInsensitive: boolean = isCaseInsensitive(),
 ): Resolved => {
-  const hit = table.entries.find((entry) => matches(entry.path, repoRoot, caseInsensitive));
+  const hit = table.entries.find((entry) => matches(entry.path, gitDir, caseInsensitive));
   if (hit) {
     return { state: "mapped", profileId: hit.profileId, color: hit.color, email: hit.email };
   }

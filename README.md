@@ -233,9 +233,16 @@ git-mapper sync --dry-run
 git-mapper sync
 ```
 
-In linked worktrees and submodules, `.git` is a file rather than a directory. The prompt
-can still resolve directory mappings, but it cannot inspect the repository-local identity
-there. Use `git-mapper status` to cross-check the mapping against Git.
+### A linked worktree shows the main repository's profile
+
+That is what Git does, and the prompt follows it. Git matches `includeIf "gitdir:"` against
+the repository's Git directory, and a linked worktree's Git directory lives under the main
+repository — `<main>/.git/worktrees/<name>` — not under the worktree itself. So a worktree
+checked out anywhere on disk resolves to whatever profile covers the **main** repository,
+and mapping the worktree directory has no effect.
+
+Map the main repository, or a directory above it. `git-mapper map` warns when the directory
+you picked cannot affect the checkout you are standing in.
 
 ## Files and safety
 

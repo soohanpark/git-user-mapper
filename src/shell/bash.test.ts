@@ -37,9 +37,18 @@ test("bashSnippet escapes an apostrophe in the mapping path", () => {
   assert.match(snippet, /_git_mapper_file='\/home\/o'\\''brien\/m\.tsv'/);
 });
 
-test("bashSnippet uses nocasematch only on case-insensitive platforms", () => {
-  assert.match(bashSnippet({ mappingFile: "/m", caseInsensitive: true }), /shopt -s nocasematch/);
-  assert.doesNotMatch(bashSnippet({ mappingFile: "/m", caseInsensitive: false }), /nocasematch/);
+test("bashSnippet folds case only on case-insensitive platforms", () => {
+  // nocasematch는 유니코드까지 접어서 git의 ASCII 전용 접기와 갈렸다(실측: `Ä`와 `ä`를
+  // 같다고 답한다). 이제 A-Z 26자만 내리는 `_git_mapper_lower`를 쓴다.
+  assert.match(
+    bashSnippet({ mappingFile: "/m", caseInsensitive: true }),
+    /_git_mapper_lower "\$_gm_gitdir"/,
+  );
+  assert.doesNotMatch(bashSnippet({ mappingFile: "/m", caseInsensitive: true }), /nocasematch/);
+  assert.doesNotMatch(
+    bashSnippet({ mappingFile: "/m", caseInsensitive: false }),
+    /_git_mapper_lower "\$_gm_gitdir"/,
+  );
 });
 
 test("the bash matcher resolves the longest prefix", async () => {

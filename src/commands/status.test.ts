@@ -23,17 +23,27 @@ const store: StoreV2 = {
   managedConditions: ["gitdir:/home/me/dev/personal/"],
 };
 
-const env = (overrides: Partial<StatusEnvironment> = {}): StatusEnvironment => ({
-  gitVersion: { major: 2, minor: 50 },
-  keysInOrder: ["user.name", "user.email", "includeif.gitdir:/home/me/dev/personal/.path"],
-  gitEmail: "me@x.com",
-  localEmail: null,
-  repoRoot: p("/home/me/dev/personal/mar"),
-  missingProfileFiles: [],
-  missingPaths: [],
-  pathsInsideRepos: [],
-  ...overrides,
-});
+/**
+ * `gitDir`을 따로 주지 않으면 `repoRoot`에서 만든다. git이 매핑을 맞춰 보는 대상이
+ * 작업 트리가 아니라 GIT_DIR이라, 두 값을 따로 두면 테스트마다 손으로 맞춰야 한다.
+ */
+const env = (overrides: Partial<StatusEnvironment> = {}): StatusEnvironment => {
+  const merged: StatusEnvironment = {
+    gitVersion: { major: 2, minor: 50 },
+    keysInOrder: ["user.name", "user.email", "includeif.gitdir:/home/me/dev/personal/.path"],
+    gitEmail: "me@x.com",
+    globalEmail: "work@x.com",
+    localEmail: null,
+    repoRoot: p("/home/me/dev/personal/mar"),
+    gitDir: p("/home/me/dev/personal/mar/.git"),
+    missingProfileFiles: [],
+    missingPaths: [],
+    pathsInsideRepos: [],
+    ...overrides,
+  };
+  if (overrides.repoRoot === undefined || overrides.gitDir !== undefined) return merged;
+  return { ...merged, gitDir: merged.repoRoot === null ? null : p(`${merged.repoRoot}/.git`) };
+};
 
 test("computeStatus reports the mapped profile with no warnings", () => {
   const result = computeStatus(store, env(), false);
@@ -76,18 +86,32 @@ test("computeStatus ignores a local override that agrees with the mapping", () =
 test("computeStatus reports no-identity only when git has no answer either", () => {
   const result = computeStatus(
     { ...store, defaultProfile: null },
-    env({ repoRoot: p("/tmp/x"), gitEmail: null }),
+    env({ repoRoot: p("/tmp/x"), gitEmail: null, globalEmail: null }),
     false,
   );
   assert.equal(result.state, "no-identity");
 });
 
-test("computeStatus treats an unmanaged [user] as the fallback rather than no-identity", () => {
-  // 스토어에 기본 프로파일이 없어도 git이 이메일을 답하면 그게 실제로 커밋될 identity다.
-  // 여기서 no-identity라고 말하면 프롬프트가 거짓말하게 된다.
+test("computeStatus names the unmanaged global [user] exactly as the snippets do", () => {
+  // sync는 이 identity를 `global`이라는 이름으로 표에 싣고 셸은 그대로 읽는다.
+  // status가 여기서 프로파일을 `-`로 답하면 같은 저장소를 두고 둘이 다른 말을 하게 된다.
   const result = computeStatus(
     { ...store, defaultProfile: null },
-    env({ repoRoot: p("/tmp/x"), gitEmail: "unmanaged@x.com" }),
+    env({ repoRoot: p("/tmp/x"), gitEmail: "unmanaged@x.com", globalEmail: "unmanaged@x.com" }),
+    false,
+  );
+  assert.equal(result.state, "default");
+  assert.equal(result.profileId, "global");
+  assert.equal(result.email, "unmanaged@x.com");
+  assert.deepEqual(result.warnings, []);
+});
+
+test("computeStatus treats an identity git has but we cannot name as the fallback", () => {
+  // 전역 [user]는 없는데 사용자가 직접 쓴 includeIf가 답을 주는 경우다. 이름 붙일 프로파일이
+  // 없을 뿐 identity는 있다 — 여기서 no-identity라고 하면 프롬프트가 거짓말하게 된다.
+  const result = computeStatus(
+    { ...store, defaultProfile: null },
+    env({ repoRoot: p("/tmp/x"), gitEmail: "unmanaged@x.com", globalEmail: null }),
     false,
   );
   assert.equal(result.state, "default");
@@ -175,7 +199,7 @@ test("computeStatus calls a repo-local identity local-override even with no fall
 test("computeStatus keeps no-identity for a repo where git has no answer either", () => {
   const result = computeStatus(
     { ...store, defaultProfile: null },
-    env({ repoRoot: p("/home/me/elsewhere"), gitEmail: null, localEmail: null }),
+    env({ repoRoot: p("/home/me/elsewhere"), gitEmail: null, globalEmail: null, localEmail: null }),
     false,
   );
 

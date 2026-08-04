@@ -121,3 +121,48 @@ test("configDir treats an empty XDG_CONFIG_HOME as unset", () => {
   assert.equal(path.isAbsolute(dir), true);
   assert.equal(dir, path.join("/home/me", ".config", "git-user-mapper"));
 });
+
+/**
+ * 구분자 정규화는 Windows 이야기다. 모든 플랫폼에서 돌리면 POSIX에서 합법적인
+ * `back\slash`가 존재하지도 않는 `back/slash`가 되어, 절대 발동하지 않는 매핑이 생기고
+ * `status`는 "경로가 사라졌다"고 엉뚱하게 설명한다.
+ */
+test("toAbsolutePath keeps a backslash that is part of a POSIX directory name", {
+  skip: process.platform === "win32",
+}, () => {
+  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "gum-bs-")));
+  const weird = path.join(base, "back\\slash");
+  fs.mkdirSync(weird);
+
+  const resolved = toAbsolutePath(weird);
+  assert.equal(resolved, weird);
+  assert.ok(fs.existsSync(resolved), `${resolved} should exist`);
+});
+
+/**
+ * `map`의 "Enter a path…"는 trim한 값으로 검증하고 raw 값을 저장했다. 후행 공백 하나로
+ * 절대 발동하지 않는 매핑이 만들어졌다.
+ */
+test("toAbsolutePath trims the input it was handed", () => {
+  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "gum-trim-")));
+  assert.equal(toAbsolutePath(`${base} `), base);
+  assert.equal(toAbsolutePath(` ${base}`), base);
+  assert.equal(toAbsolutePath(`\t${base}\n`), base);
+});
+
+/**
+ * macOS의 realpath는 심볼릭 링크만 풀고 대소문자는 사용자가 친 그대로 남긴다. 그러면
+ * git이 받는 `gitdir/i:` 패턴이 디스크 철자와 어긋나고, wildmatch는 ASCII만 접으므로
+ * 비ASCII가 섞이면 매핑이 아예 발동하지 않는다. 저장 시점에 철자를 맞춘다.
+ */
+test("toAbsolutePath adopts the on-disk spelling on case-insensitive filesystems", {
+  skip: !isCaseInsensitive(),
+}, () => {
+  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "gum-case-")));
+  const real = path.join(base, "MixedCase");
+  fs.mkdirSync(real);
+
+  const typed = path.join(base, "mixedcase");
+  if (!fs.existsSync(typed)) return; // 실제로는 대소문자를 가리는 파일시스템이었다
+  assert.equal(toAbsolutePath(typed), real);
+});

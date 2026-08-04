@@ -16,9 +16,18 @@ test("zshSnippet escapes an apostrophe in the mapping path", () => {
   assert.match(snippet, /_git_mapper_file='\/home\/o'\\''brien\/m\.tsv'/);
 });
 
-test("zshSnippet lowercases paths only on case-insensitive platforms", () => {
-  assert.match(zshSnippet({ mappingFile: "/m", caseInsensitive: true }), /\$\{root:l\}/);
-  assert.doesNotMatch(zshSnippet({ mappingFile: "/m", caseInsensitive: false }), /\$\{root:l\}/);
+test("zshSnippet folds case only on case-insensitive platforms", () => {
+  // `${p:l}`는 유니코드까지 접어서 git의 ASCII 전용 접기와 갈렸다. 이제 `_git_mapper_lower`를
+  // 부르고, 그 함수는 A-Z 26자만 내린다.
+  assert.match(
+    zshSnippet({ mappingFile: "/m", caseInsensitive: true }),
+    /_git_mapper_lower "\$_gm_gitdir"/,
+  );
+  assert.doesNotMatch(zshSnippet({ mappingFile: "/m", caseInsensitive: false }), /:l\}/);
+  assert.doesNotMatch(
+    zshSnippet({ mappingFile: "/m", caseInsensitive: false }),
+    /_git_mapper_lower "\$_gm_gitdir"/,
+  );
 });
 
 /**
