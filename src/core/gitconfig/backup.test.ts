@@ -31,14 +31,34 @@ test("backupFile returns null when the source does not exist", () => {
   assert.equal(backupFile({ source: "/definitely/missing", dir, now: "x" }), null);
 });
 
-test("backupFile keeps only the newest N backups", () => {
+test("backupFile keeps the newest N and never drops the pre-tool snapshot", () => {
   const { source, dir } = setup();
   for (const stamp of ["01", "02", "03", "04"]) {
     // 내용이 매번 달라야 한다. 같은 내용이면 새 백업을 만들지 않는 게 정상 동작이다.
     fs.writeFileSync(source, `[user]\n\temail = ${stamp}@b.com\n`);
     backupFile({ source, dir, now: stamp, keep: 2 });
   }
-  assert.deepEqual(fs.readdirSync(dir).toSorted(), ["gitconfig.03.bak", "gitconfig.04.bak"]);
+  // 01은 이 도구가 손대기 **전**의 유일한 스냅샷이다. 되돌릴 곳이 거기뿐이라 밀어내지 않는다.
+  assert.deepEqual(fs.readdirSync(dir).toSorted(), [
+    "gitconfig.01.bak",
+    "gitconfig.03.bak",
+    "gitconfig.04.bak",
+  ]);
+});
+
+test("backupFile keeps the pre-tool snapshot readable as it was", () => {
+  const { source, dir } = setup();
+  const pristine = fs.readFileSync(source, "utf8");
+
+  // 첫 sync가 뜨는 백업이 도구가 손대기 전의 파일이다. 되돌릴 곳은 여기뿐이다.
+  backupFile({ source, dir, now: "00", keep: 1 });
+
+  for (const stamp of ["01", "02", "03", "04", "05"]) {
+    fs.writeFileSync(source, `[user]\n\temail = ${stamp}@b.com\n`);
+    backupFile({ source, dir, now: stamp, keep: 1 });
+  }
+
+  assert.equal(fs.readFileSync(path.join(dir, "gitconfig.00.bak"), "utf8"), pristine);
 });
 
 /**

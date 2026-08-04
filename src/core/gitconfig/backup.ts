@@ -45,9 +45,14 @@ export const backupFile = (options: BackupOptions): string | null => {
     fs.writeFileSync(target, content, { mode: 0o600, flag: "wx" });
   }
 
+  // 가장 오래된 하나는 절대 지우지 않는다. 그게 이 도구가 손대기 **전**의 유일한
+  // 스냅샷이고, 불변조건 3이 지키려는 것도 결국 그 파일이다. 오래된 것부터 밀어내는
+  // 규칙만 두면 평범한 첫 주 사용(add·map·unmap 열 번)으로 원본이 사라진다.
   const keep = options.keep ?? DEFAULT_KEEP;
   const backups = listBackups(options.dir);
+  const pristine = backups[0];
   for (const stale of backups.slice(0, Math.max(0, backups.length - keep))) {
+    if (stale === pristine) continue;
     fs.rmSync(path.join(options.dir, stale), { force: true });
   }
 
