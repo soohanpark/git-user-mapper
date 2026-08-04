@@ -57,6 +57,25 @@ const storeV2Schema = z.object({
       }
       seen.add(profile.id);
     }
+
+    // 같은 경로가 두 번 나오면 git과 우리가 서로 다른 프로파일을 고른다. git은 조건이
+    // 같은 두 번의 쓰기 중 **나중** 것을 남기고, `resolve`는 정렬된 표에서 **앞** 것을
+    // 고른다. 그래서 프롬프트·status·git이 셋 다 다른 답을 낼 수 있다. id 중복만 막고
+    // 경로 중복을 놔둔 건 위 주석이 설명하는 실패를 절반만 막은 것이었다.
+    const owner = new Map<string, string>();
+    for (const [index, profile] of profiles.entries()) {
+      for (const [pathIndex, target] of profile.paths.entries()) {
+        const previous = owner.get(target);
+        if (previous !== undefined) {
+          ctx.addIssue({
+            code: "custom",
+            path: [index, "paths", pathIndex],
+            message: `${JSON.stringify(target)} is already mapped by ${JSON.stringify(previous)}`,
+          });
+        }
+        owner.set(target, profile.id);
+      }
+    }
   }),
   managedConditions: z.array(z.string().min(1)),
 });
@@ -191,6 +210,21 @@ const readLegacyStore = (currentPath: string): unknown => {
     // 예전 파일이 깨져 있다고 해서 새 도구를 못 쓰게 만들 이유는 없다.
     return null;
   }
+};
+
+/**
+ * 마이그레이션이 실제로 일어날 수 있는 상태인가. `openStore` 안의 두 분기와 같은 조건을
+ * 본다. 아니라면 `createContext`는 전역 identity를 읽지 않아도 되고, 그만큼 git을 두 번
+ * 덜 띄운다 — 읽기 전용 명령에서는 그 둘이 유일한 하위 프로세스였다.
+ */
+export const migrationPossible = (options: { readonly cwd?: string } = {}): boolean => {
+  const conf = new Conf<Record<string, unknown>>({
+    projectName: "git-user-mapper",
+    ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+  });
+  const raw = conf.store;
+  if (isEmptyStore(raw)) return fs.existsSync(legacyStorePath(conf.path));
+  return isV1Shaped(raw) && fs.existsSync(conf.path);
 };
 
 export const openStore = (options: OpenStoreOptions = {}): StoreHandle => {

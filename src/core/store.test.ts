@@ -226,3 +226,53 @@ test("a v1-shaped store reports v1 errors, not 'version must be 2'", () => {
     (error: Error) => error.message.includes("email") && !error.message.includes("version"),
   );
 });
+
+/**
+ * 같은 경로가 두 프로파일에 실리면 git은 조건이 겹치는 두 번의 쓰기 중 **나중** 것을
+ * 남기고, `resolve`는 정렬된 표에서 **앞** 것을 고른다. 그래서 git·프롬프트·status가
+ * 서로 다른 답을 낼 수 있다. 스토어는 사용자가 직접 고칠 수 있는 파일이라 여기서 막는다.
+ */
+test("parseStore rejects the same path mapped by two profiles", () => {
+  const raw = {
+    version: 2,
+    defaultProfile: null,
+    managedConditions: [],
+    profiles: [
+      { id: "aaa", name: "n", email: "a@x.com", signingKey: null, color: "blue", paths: ["/w"] },
+      { id: "zzz", name: "n", email: "z@x.com", signingKey: null, color: "red", paths: ["/w"] },
+    ],
+  };
+  assert.throws(() => parseStore(raw), /already mapped by/);
+});
+
+test("parseStore rejects the same path listed twice in one profile", () => {
+  const raw = {
+    version: 2,
+    defaultProfile: null,
+    managedConditions: [],
+    profiles: [
+      {
+        id: "aaa",
+        name: "n",
+        email: "a@x.com",
+        signingKey: null,
+        color: "blue",
+        paths: ["/w", "/w"],
+      },
+    ],
+  };
+  assert.throws(() => parseStore(raw), /already mapped by/);
+});
+
+test("parseStore still accepts distinct paths across profiles", () => {
+  const raw = {
+    version: 2,
+    defaultProfile: null,
+    managedConditions: [],
+    profiles: [
+      { id: "aaa", name: "n", email: "a@x.com", signingKey: null, color: "blue", paths: ["/w"] },
+      { id: "zzz", name: "n", email: "z@x.com", signingKey: null, color: "red", paths: ["/p"] },
+    ],
+  };
+  assert.equal(parseStore(raw).profiles.length, 2);
+});
