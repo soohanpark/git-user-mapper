@@ -274,3 +274,101 @@ test("mapping.tsv is written 0600 because it carries the same emails", async () 
   const file = path.join(f.options.configDir, "mapping.tsv");
   assert.equal(fs.statSync(file).mode & 0o777, 0o600);
 });
+
+/**
+ * 사용자가 직접 써 둔 `includeIf`가 있고 전역 `[user]`는 없는 설정 — 손으로 조건부
+ * include를 쓰던 사람이 이 도구를 처음 깔면 정확히 이 모양이다.
+ *
+ * `git config --global user.name`은 섹션이 없으면 파일 **끝에** 만든다. 그대로 두면
+ * 사용자의 includeIf가 전부 그 앞에 놓여 조용히 죽는다. 게다가 sync는 자기가 관리하는
+ * 조건만 걷어낼 수 있으므로 `status`의 "sync를 돌려라"는 안내가 영원히 고쳐지지 않았다.
+ */
+test("an includeIf the user wrote by hand keeps working after the first sync", async () => {
+  const f = fixture();
+  const mine = path.join(f.base, "mine");
+  fs.mkdirSync(mine, { recursive: true });
+
+  const handWritten = path.join(f.base, "hand.gitconfig");
+  await execa("git", ["config", "--file", handWritten, "user.email", "hand@example.com"]);
+  await execa("git", ["config", "--global", `includeIf.gitdir:${mine}/.path`, handWritten], {
+    env: f.env,
+  });
+
+  const repo = await makeRepo(path.join(mine, "repo"));
+  assert.equal(await emailIn(repo, f.env), "hand@example.com");
+
+  fs.mkdirSync(path.join(f.base, "personal"), { recursive: true });
+  await applySync(storeFor(f), f.options);
+
+  // 우리가 [user]를 만들었어도 사용자의 매핑이 여전히 이긴다.
+  assert.equal(await emailIn(repo, f.env), "hand@example.com");
+
+  const text = fs.readFileSync(f.options.globalConfigPath, "utf8");
+  assert.ok(text.indexOf("[user]") < text.indexOf("[includeIf"), text);
+
+  // 남의 항목을 우리 관리 목록에 넣으면 다음 sync가 지워 버린다.
+  const next = await applySync(storeFor(f), f.options);
+  assert.ok(!next.managedConditions.some((condition) => condition.includes("/mine")));
+  assert.equal(await emailIn(repo, f.env), "hand@example.com");
+});
+
+test("a [user] that already sits after the includeIf entries is moved back in front", async () => {
+  const f = fixture();
+  const mine = path.join(f.base, "mine");
+  fs.mkdirSync(mine, { recursive: true });
+  const handWritten = path.join(f.base, "hand.gitconfig");
+  await execa("git", ["config", "--file", handWritten, "user.email", "hand@example.com"]);
+
+  // includeIf를 먼저, [user]를 나중에 — 매핑이 지는 배치다.
+  await execa("git", ["config", "--global", `includeIf.gitdir:${mine}/.path`, handWritten], {
+    env: f.env,
+  });
+  await execa("git", ["config", "--global", "user.email", "stale@example.com"], { env: f.env });
+
+  const repo = await makeRepo(path.join(mine, "repo"));
+  assert.equal(await emailIn(repo, f.env), "stale@example.com");
+
+  fs.mkdirSync(path.join(f.base, "personal"), { recursive: true });
+  await applySync(storeFor(f), f.options);
+
+  assert.equal(await emailIn(repo, f.env), "hand@example.com");
+});
+
+/**
+ * 예전에는 관리 조건을 전부 지웠다가 그대로 다시 달았다. 그 사이 매핑이 하나도 없는
+ * 창이 생겨, 다른 터미널이나 IDE에서 커밋하면 기본 프로파일로 커밋됐다.
+ */
+test("a sync that changes nothing does not touch the includeIf entries", async () => {
+  const f = fixture();
+  fs.mkdirSync(path.join(f.base, "personal"), { recursive: true });
+  const first = await applySync(storeFor(f), f.options);
+
+  const before = fs.readFileSync(f.options.globalConfigPath, "utf8");
+  const repo = await makeRepo(path.join(f.base, "personal", "mar"));
+
+  const second = await applySync(
+    { ...storeFor(f), managedConditions: first.managedConditions },
+    f.options,
+  );
+
+  // 지웠다 다시 달면 내용은 같아도 항목이 파일 끝으로 옮겨 간다. 바이트 단위로 같다는
+  // 것은 그 조건을 아예 건드리지 않았다는 뜻이다.
+  assert.equal(fs.readFileSync(f.options.globalConfigPath, "utf8"), before);
+  assert.deepEqual(second.managedConditions, first.managedConditions);
+  assert.equal(await emailIn(repo, f.env), "me@gmail.com");
+});
+
+test("mapping.tsv is replaced atomically, never truncated in place", async () => {
+  const f = fixture();
+  fs.mkdirSync(path.join(f.base, "personal"), { recursive: true });
+  await applySync(storeFor(f), f.options);
+
+  const mappingFile = path.join(f.options.configDir, "mapping.tsv");
+  const staging = `${mappingFile}.tmp`;
+
+  // 두 번째 sync 뒤에도 임시 파일이 남아 있으면 안 된다.
+  fs.mkdirSync(path.join(f.base, "msu"), { recursive: true });
+  await applySync(storeFor(f, ["personal", "msu"]), f.options);
+  assert.equal(fs.existsSync(staging), false);
+  assert.ok(fs.readFileSync(mappingFile, "utf8").endsWith("\n"));
+});

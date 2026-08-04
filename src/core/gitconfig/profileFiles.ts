@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { Profile, ProfileId } from "../../types.ts";
 import { type GitOptions, git } from "../git.ts";
+import { readConfigText } from "./configText.ts";
 
 const EXTENSION = ".gitconfig";
 const HEADER = "# Managed by git-user-mapper. Edits are overwritten by `git-mapper sync`.\n";
@@ -20,6 +21,39 @@ export const profileFilePath = (id: ProfileId, dir: string): string =>
  *   개행 포함        -> 섹션이 주입된다(`core.sshCommand` 같은 것이 심어진다)
  * git에게 맡기면 위 값들이 전부 바이트 단위로 왕복한다.
  */
+/**
+ * 파일이 이미 정확히 이 프로파일인가. **읽기**만 하므로 불변조건 2와 무관하다 — 쓰기는
+ * 여전히 git이 한다.
+ *
+ * 이 검사가 없으면 아무것도 바뀌지 않은 sync도 프로파일마다 git을 두 번씩 띄운다.
+ * 매핑 50개 기준 실측으로 104번의 spawn 중 100번이 여기였다.
+ *
+ * 키 집합까지 함께 비교한다. 값만 보면 지워진 signingKey가 파일에 남아 있어도
+ * "같다"고 판단해 버린다.
+ */
+const alreadyWritten = (target: string, profile: Profile): boolean => {
+  let text: string;
+  try {
+    text = fs.readFileSync(target, "utf8");
+  } catch {
+    return false;
+  }
+  if (!text.startsWith(HEADER)) return false;
+
+  const expected = new Map<string, string>([
+    ["user.name", profile.name],
+    ["user.email", profile.email],
+  ]);
+  if (profile.signingKey !== null) expected.set("user.signingkey", profile.signingKey);
+
+  const found = readConfigText(text);
+  if (found.size !== expected.size) return false;
+  for (const [key, value] of expected) {
+    if (found.get(key) !== value) return false;
+  }
+  return true;
+};
+
 export const writeProfileFile = async (
   profile: Profile,
   dir: string,
@@ -27,6 +61,11 @@ export const writeProfileFile = async (
 ): Promise<string> => {
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   const target = profileFilePath(profile.id, dir);
+
+  if (alreadyWritten(target, profile)) {
+    fs.chmodSync(target, 0o600);
+    return target;
+  }
 
   // 헤더만 남기고 매번 새로 만든다. 이어 쓰면 지워진 signingKey가 살아남는다.
   fs.writeFileSync(target, HEADER, { mode: 0o600 });
