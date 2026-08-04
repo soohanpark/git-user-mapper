@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { type GitOptions, git, gitOrNull } from "../git.ts";
+import { type GitOptions, git, gitExact, gitOrNull } from "../git.ts";
 import { globalGitConfigPath } from "../paths.ts";
 
 export interface GlobalUser {
@@ -65,10 +65,14 @@ export const setGlobalUser = async (user: GlobalUser, options: GitOptions = {}):
 
 export const getGlobalUser = async (
   options: GitOptions = {},
-): Promise<{ readonly name: string | null; readonly email: string | null }> => ({
-  name: await gitOrNull(["config", "--global", "--get", "user.name"], options, KEY_ABSENT),
-  email: await gitOrNull(["config", "--global", "--get", "user.email"], options, KEY_ABSENT),
-});
+): Promise<{ readonly name: string | null; readonly email: string | null }> => {
+  // 둘 다 읽기이고 서로 의존하지 않는다. 객체 리터럴에 `await`를 나란히 쓰면 순차 실행된다.
+  const [name, email] = await Promise.all([
+    gitOrNull(["config", "--global", "--get", "user.name"], options, KEY_ABSENT),
+    gitOrNull(["config", "--global", "--get", "user.email"], options, KEY_ABSENT),
+  ]);
+  return { name, email };
+};
 
 /**
  * git이 이 호출에서 전역 설정으로 볼 파일. 테스트는 `GIT_CONFIG_GLOBAL`을 `options.env`로
@@ -77,18 +81,52 @@ export const getGlobalUser = async (
 const globalPathFor = (options: GitOptions): string =>
   globalGitConfigPath(options.env ?? process.env);
 
+export interface GlobalEntry {
+  readonly key: string;
+  readonly value: string | null;
+}
+
 /**
  * `git config --list`는 파일에 적힌 순서대로 출력한다. 순서 판정에 그대로 쓴다.
  *
  * 파일이 아예 없으면 git은 128로 끝난다 — 파일이 망가졌을 때와 **같은 코드**다.
  * 종료 코드만 봐서는 갈라낼 수 없으므로 존재 여부를 먼저 확인한다. 없으면 키도 없는 게
  * 맞고(처음 쓰는 사용자가 여기다), 있는데 실패하면 그건 진짜 고장이므로 던진다.
+ *
+ * `-z`를 쓰는 이유는 값에 개행이 들어갈 수 있어서다. 한 번의 호출로 키와 값을 함께
+ * 얻으므로, sync가 "이미 원하는 값인 조건"을 골라내는 데 추가 호출이 들지 않는다.
  */
-export const globalKeysInOrder = async (options: GitOptions = {}): Promise<readonly string[]> => {
+export const globalEntriesInOrder = async (
+  options: GitOptions = {},
+): Promise<readonly GlobalEntry[]> => {
   if (!fs.existsSync(globalPathFor(options))) return [];
-  const output = await git(["config", "--global", "--list", "--name-only"], options);
-  return output.split("\n").filter((line) => line !== "");
+  const output = await gitExact(["config", "--global", "--list", "-z"], options);
+  return output
+    .split("\0")
+    .filter((record) => record !== "")
+    .map((record) => {
+      const newline = record.indexOf("\n");
+      return newline === -1
+        ? { key: record, value: null }
+        : { key: record.slice(0, newline), value: record.slice(newline + 1) };
+    });
 };
+
+export const globalKeysInOrder = async (options: GitOptions = {}): Promise<readonly string[]> =>
+  (await globalEntriesInOrder(options)).map((entry) => entry.key);
+
+const INCLUDE_PREFIX = "includeif.";
+const INCLUDE_SUFFIX = ".path";
+
+/** `~/.gitconfig`에 실제로 적혀 있는 `includeIf` 조건들. 파일에 적힌 순서를 유지한다. */
+export const includeIfConditions = (keys: readonly string[]): readonly string[] =>
+  keys
+    .filter((key) => key.startsWith(INCLUDE_PREFIX) && key.endsWith(INCLUDE_SUFFIX))
+    .map((key) => key.slice(INCLUDE_PREFIX.length, -INCLUDE_SUFFIX.length));
+
+/** `[user]`가 이미 파일에 있는가. 없으면 git은 파일 **끝에** 새로 만든다. */
+export const hasUserSection = (keys: readonly string[]): boolean =>
+  keys.some((key) => key === "user.name" || key === "user.email");
 
 /**
  * 변경을 시작하기 전에 전역 설정을 한 번 읽어 본다. 깨진 파일이면 여기서 던지고,

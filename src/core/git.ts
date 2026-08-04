@@ -41,11 +41,15 @@ const validateArgs = (args: readonly string[]): void => {
   }
 };
 
-export const git = async (args: readonly string[], options: GitOptions = {}): Promise<string> => {
+const run = async (
+  args: readonly string[],
+  options: GitOptions,
+  trim: boolean,
+): Promise<string> => {
   validateArgs(args);
   try {
     const result = await execa("git", args, options);
-    return result.stdout.trim();
+    return trim ? result.stdout.trim() : result.stdout;
   } catch (error) {
     const failure = error as ExecaFailure;
     throw new GitError(
@@ -55,6 +59,18 @@ export const git = async (args: readonly string[], options: GitOptions = {}): Pr
     );
   }
 };
+
+export const git = async (args: readonly string[], options: GitOptions = {}): Promise<string> =>
+  run(args, options, true);
+
+/**
+ * 출력을 다듬지 않는다. `--list -z`처럼 구분자가 의미를 갖는 출력에 쓴다 — `trim()`은
+ * 마지막 값의 뒤쪽 공백까지 함께 지워서 값이 조용히 달라진다.
+ */
+export const gitExact = async (
+  args: readonly string[],
+  options: GitOptions = {},
+): Promise<string> => run(args, options, false);
 
 /**
  * 값이 없는 상태를 오류가 아니라 값으로 다룬다. 다만 **어떤 종료 코드가 정상인지는
