@@ -1,16 +1,28 @@
 import { createRequire } from "node:module";
-import chalk from "chalk";
 import { Command } from "commander";
-import { runAdd } from "./commands/add.ts";
-import { runDefault } from "./commands/default.ts";
-import { runList } from "./commands/list.ts";
-import { runMap } from "./commands/map.ts";
-import { runRemove } from "./commands/remove.ts";
-import { runReset } from "./commands/reset.ts";
-import { runShellInit } from "./commands/shellInit.ts";
-import { runStatus } from "./commands/status.ts";
-import { runSync } from "./commands/sync.ts";
-import { runUnmap } from "./commands/unmap.ts";
+
+/**
+ * 명령 모듈은 실제로 부를 때 불러온다.
+ *
+ * 정적으로 열 개를 걸어 두면 `conf`·`zod`·`@inquirer/prompts`·`execa`·`chalk`까지
+ * 전부 딸려 와서, 어떤 명령을 쓰든 475개 모듈을 읽고 시작한다. README가 권하는 대로
+ * `eval "$(git-mapper shell-init zsh)"`를 `~/.zshrc`에 넣으면 그 값이 **새 터미널을 열
+ * 때마다** 붙는다. 실측(빌드된 dist, 격리 HOME, 25회 인터리브)으로 `node -e ''`가
+ * min 28.7ms인데 `shell-init zsh`는 min 191.8 / p50 347.3ms였고, 그중 우리 임포트
+ * 그래프가 대부분이었다. `shell-init`이 실제로 필요로 하는 서드파티 의존성은 0개다.
+ */
+const load = {
+  add: async () => (await import("./commands/add.ts")).runAdd,
+  default: async () => (await import("./commands/default.ts")).runDefault,
+  list: async () => (await import("./commands/list.ts")).runList,
+  map: async () => (await import("./commands/map.ts")).runMap,
+  remove: async () => (await import("./commands/remove.ts")).runRemove,
+  reset: async () => (await import("./commands/reset.ts")).runReset,
+  shellInit: async () => (await import("./commands/shellInit.ts")).runShellInit,
+  status: async () => (await import("./commands/status.ts")).runStatus,
+  sync: async () => (await import("./commands/sync.ts")).runSync,
+  unmap: async () => (await import("./commands/unmap.ts")).runUnmap,
+} as const;
 
 /**
  * package.json에서 읽는다. 하드코딩하면 `npm version`이 올려도 그대로 남아
@@ -41,26 +53,41 @@ export const run = async (argv: readonly string[]): Promise<void> => {
     .version(version())
     .showSuggestionAfterError();
 
-  program.command("map").description("Map the current directory to a profile").action(runMap);
+  program
+    .command("map")
+    .description("Map the current directory to a profile")
+    .action(async () => {
+      await (await load.map())();
+    });
 
   program
     .command("status")
     .description("Show the profile that applies here and verify it against git")
     .option("--porcelain", "machine readable output for shell prompts", false)
     .action(async (options: { porcelain: boolean }) => {
-      process.exitCode = await runStatus({ porcelain: options.porcelain });
+      process.exitCode = await (await load.status())({ porcelain: options.porcelain });
     });
 
-  program.command("list").description("List profiles and their mappings").action(runList);
+  program
+    .command("list")
+    .description("List profiles and their mappings")
+    .action(async () => {
+      await (await load.list())();
+    });
 
-  program.command("add").description("Add a profile").action(runAdd);
+  program
+    .command("add")
+    .description("Add a profile")
+    .action(async () => {
+      await (await load.add())();
+    });
 
   program
     .command("remove")
     .argument("[id]", "profile id")
     .description("Remove a profile and its mappings")
     .action(async (id?: string) => {
-      await runRemove(id);
+      await (await load.remove())(id);
     });
 
   program
@@ -68,7 +95,7 @@ export const run = async (argv: readonly string[]): Promise<void> => {
     .argument("[path]", "directory to unmap (defaults to the current directory)")
     .description("Remove a directory mapping")
     .action(async (target?: string) => {
-      await runUnmap(target);
+      await (await load.unmap())(target);
     });
 
   program
@@ -76,7 +103,7 @@ export const run = async (argv: readonly string[]): Promise<void> => {
     .argument("[id]", "profile id")
     .description("Set the fallback profile used where no mapping matches")
     .action(async (id?: string) => {
-      await runDefault(id);
+      await (await load.default())(id);
     });
 
   program
@@ -84,7 +111,7 @@ export const run = async (argv: readonly string[]): Promise<void> => {
     .option("--dry-run", "print what would change without changing anything", false)
     .description("Regenerate every derived file")
     .action(async (options: { dryRun: boolean }) => {
-      await runSync({ dryRun: options.dryRun });
+      await (await load.sync())({ dryRun: options.dryRun });
     });
 
   program
@@ -92,10 +119,15 @@ export const run = async (argv: readonly string[]): Promise<void> => {
     .argument("<shell>", "zsh or bash")
     .description("Print the shell snippet that shows the active profile in your prompt")
     .action(async (shell: string) => {
-      await runShellInit(shell);
+      await (await load.shellInit())(shell);
     });
 
-  program.command("reset").description("Remove all profiles and mappings").action(runReset);
+  program
+    .command("reset")
+    .description("Remove all profiles and mappings")
+    .action(async () => {
+      await (await load.reset())();
+    });
 
   // 인자가 없으면 map으로 보낸다. commander의 `isDefault: true`를 쓰면 오타난 하위
   // 명령이 map의 인자로 흘러들어가 "too many arguments for 'map'"이라는, 무엇을
@@ -118,6 +150,8 @@ export const main = async (argv: readonly string[]): Promise<void> => {
       process.exitCode = 130;
       return;
     }
+    // 오류 경로에서만 chalk를 부른다. 정상 실행에 색을 위해 모듈을 하나 더 읽을 이유가 없다.
+    const { default: chalk } = await import("chalk");
     const message = error instanceof Error ? error.message : String(error);
     process.stderr.write(chalk.red(`${message}\n`));
     process.exitCode = 1;

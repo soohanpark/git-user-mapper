@@ -1,6 +1,6 @@
-import { confirm, select } from "@inquirer/prompts";
 import chalk from "chalk";
 import { createContext, syncAndPersist } from "../core/context.ts";
+import { confirm, select } from "../core/prompt.ts";
 import type { ProfileId } from "../types.ts";
 
 export const runRemove = async (requested?: string): Promise<void> => {

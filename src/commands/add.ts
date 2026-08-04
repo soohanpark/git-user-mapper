@@ -1,7 +1,7 @@
-import { input } from "@inquirer/prompts";
 import chalk from "chalk";
 import { createContext, syncAndPersist } from "../core/context.ts";
 import { pickColor, toProfileId, uniqueId } from "../core/profile.ts";
+import { input } from "../core/prompt.ts";
 import type { Profile, StoreV2 } from "../types.ts";
 
 export interface ProfileInput {

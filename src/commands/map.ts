@@ -1,9 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
-import { input, select } from "@inquirer/prompts";
 import chalk from "chalk";
 import { createContext, syncAndPersist } from "../core/context.ts";
+import { gitContextFor } from "../core/gitdir.ts";
+import { covers } from "../core/mapping.ts";
 import { findRepoRoot, toAbsolutePath, unsafeAbsolutePath } from "../core/paths.ts";
+import { input, select } from "../core/prompt.ts";
 import type { AbsolutePath, ProfileId, StoreV2 } from "../types.ts";
 import { promptForProfile } from "./add.ts";
 
@@ -56,7 +58,8 @@ export const runMap = async (): Promise<void> => {
   let store = context.store.read();
 
   const cwd = toAbsolutePath(process.cwd());
-  const repoRoot = findRepoRoot(cwd);
+  const gitContext = gitContextFor(cwd);
+  const repoRoot = gitContext?.repoRoot ?? null;
   const here = repoRoot ?? cwd;
   const alreadyMapped = store.profiles.find((profile) => profile.paths.includes(here));
 
@@ -126,6 +129,23 @@ export const runMap = async (): Promise<void> => {
     process.stdout.write(
       chalk.yellow(
         `! ${target} is inside the repository ${targetRepo}. git matches includeIf against the repository root, so this mapping would have no effect.\n`,
+      ),
+    );
+  }
+
+  // git은 `includeIf "gitdir:"`를 작업 트리가 아니라 GIT_DIR로 맞춘다. linked worktree의
+  // GIT_DIR은 주 저장소의 `.git/worktrees/<이름>` 아래라, 워크트리 디렉토리를 매핑하면
+  // 조건은 만들어지지만 git이 절대 고르지 않는다. 여기서 말해 주지 않으면 사용자는
+  // 매핑이 걸린 줄 알고 다른 identity로 커밋한다.
+  if (
+    gitContext !== null &&
+    (cwd === target || cwd.startsWith(`${target}/`)) &&
+    !covers(target, gitContext.gitDir)
+  ) {
+    process.stdout.write(
+      chalk.yellow(
+        `! git resolves identities for this checkout through ${gitContext.gitDir}, which is outside ${target}.\n` +
+          `  Map ${path.dirname(gitContext.commonDir)} (the main repository) or a directory above it instead.\n`,
       ),
     );
   }

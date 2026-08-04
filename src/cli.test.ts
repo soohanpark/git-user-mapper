@@ -105,3 +105,47 @@ test("shell-init emits a snippet for every supported shell", async () => {
     assert.match(result.stdout, /_git_mapper_resolve/, `shell-init ${shell} produced nothing`);
   }
 });
+
+/**
+ * 첨자 접근은 프로토타입 체인을 탄다. `shell-init toString`은 함수를 찾아내 종료 코드 0으로
+ * `[object Undefined]`를 출력했고, rc 파일의 `eval "$(git-mapper shell-init …)"`에 그대로
+ * 흘러들어갔다. 나머지 셋은 같은 이유로 엉뚱한 내부 오류 메시지를 냈다.
+ */
+test("an inherited Object property is not mistaken for a shell", async () => {
+  for (const key of ["toString", "constructor", "hasOwnProperty", "valueOf", "__proto__"]) {
+    const result = await runCli(["shell-init", key]);
+    assert.equal(result.exitCode, 1, `shell-init ${key} exited ${result.exitCode}`);
+    assert.match(result.stderr, /Unsupported shell/, `shell-init ${key} said: ${result.stderr}`);
+    assert.equal(result.stdout, "", `shell-init ${key} wrote to stdout: ${result.stdout}`);
+  }
+});
+
+/**
+ * stdin이 EOF인 스트림이면 inquirer의 프라미스가 끝내 결정되지 않는다. 이벤트 루프가 비면
+ * signal-exit이 정리 단계에서 `ExitPromptError`를 던지고, 프로세스는 사용자가 Ctrl-C를
+ * 누른 것과 같은 **130**으로 끝나면서 `Detected unsettled top-level await` 경고를 남겼다.
+ * `stdin: "ignore"`(fd가 닫힌 경우)는 다른 경로라 이 상황을 덮지 못했다.
+ */
+test("an interactive command without a terminal fails with a sentence, not exit 130", async () => {
+  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "gum-cli-tty-")));
+  fs.writeFileSync(path.join(home, ".gitconfig"), "");
+
+  for (const command of ["add", "map", "reset"]) {
+    const result = await execa("node", [entry, command], {
+      env: {
+        HOME: home,
+        XDG_CONFIG_HOME: path.join(home, ".config"),
+        GIT_CONFIG_GLOBAL: path.join(home, ".gitconfig"),
+        GIT_CONFIG_NOSYSTEM: "1",
+      },
+      cwd: home,
+      input: "",
+      reject: false,
+    });
+
+    const stderr = result.stderr ?? "";
+    assert.equal(result.exitCode, 1, `${command} exited ${result.exitCode}: ${stderr}`);
+    assert.match(stderr, /interactive terminal/, `${command} said: ${stderr}`);
+    assert.doesNotMatch(stderr, /unsettled top-level await/, `${command} leaked: ${stderr}`);
+  }
+});

@@ -1,6 +1,6 @@
-import { confirm } from "@inquirer/prompts";
 import chalk from "chalk";
-import { type Context, createContext } from "../core/context.ts";
+import { type Context, createContext, syncAndPersist } from "../core/context.ts";
+import { confirm } from "../core/prompt.ts";
 import { emptyStore } from "../core/store.ts";
 import { applySync, type SyncOptions } from "../core/sync.ts";
 import type { StoreV2 } from "../types.ts";
@@ -13,8 +13,15 @@ import type { StoreV2 } from "../types.ts";
  *
  * `defaultProfile`이 null이므로 `~/.gitconfig`의 `[user]`는 건드리지 않는다.
  */
+/** reset이 sync에 넘기는 스토어. 관리 조건만 남겨 두면 sync가 나머지를 전부 회수한다. */
+export const clearedStore = (store: StoreV2): StoreV2 => ({
+  ...emptyStore(),
+  managedConditions: store.managedConditions,
+});
+
+/** 테스트에서 sync 옵션을 직접 주입할 때만 쓴다. 실제 명령은 `syncAndPersist`를 지난다. */
 export const clearManaged = async (store: StoreV2, options: SyncOptions): Promise<void> => {
-  await applySync({ ...emptyStore(), managedConditions: store.managedConditions }, options);
+  await applySync(clearedStore(store), options);
 };
 
 export const runReset = async (): Promise<void> => {
@@ -30,7 +37,9 @@ export const runReset = async (): Promise<void> => {
     return;
   }
 
-  await clearManaged(store, context.sync);
-  context.store.write(emptyStore());
+  // 불변조건 8: 스토어를 바꾸는 명령은 예외 없이 syncAndPersist를 지난다. 빈 스토어라
+  // 지금은 기록할 추가 조건이 없어 결과가 같지만, 그 보증이 걸려 있지 않은 상태로 두면
+  // 나중에 reset이 조건 하나라도 쓰게 되는 순간 고아 includeIf가 조용히 돌아온다.
+  await syncAndPersist(context, clearedStore(store));
   process.stdout.write(chalk.green("✓ Reset. ~/.gitconfig [user] was left as it is.\n"));
 };

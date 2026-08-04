@@ -1,6 +1,6 @@
-import { select } from "@inquirer/prompts";
 import chalk from "chalk";
 import { createContext, syncAndPersist } from "../core/context.ts";
+import { select } from "../core/prompt.ts";
 import type { ProfileId } from "../types.ts";
 
 export const runDefault = async (requested?: string): Promise<void> => {
