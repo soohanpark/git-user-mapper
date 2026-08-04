@@ -48,6 +48,21 @@ const available = new Map(
   await Promise.all(SHELLS.map(async (s) => [s.name, await isAvailable(s.name)] as const)),
 );
 
+/**
+ * 설치되지 않은 셸은 건너뛴다. 개발자 기계에서는 그게 맞지만, CI에서는 그 관대함이
+ * 위험하다 — 러너에 zsh가 없으면 zsh 케이스가 전부 skip되고 실행은 초록불이 되며,
+ * "프롬프트가 git과 같은 답을 낸다"는 주장의 절반이 검증되지 않은 채 배포까지 간다.
+ * `GIT_MAPPER_REQUIRE_SHELLS=1`이면 건너뛰는 대신 실패한다.
+ */
+const requireShells = process.env.GIT_MAPPER_REQUIRE_SHELLS === "1";
+
+const missing = SHELLS.filter((s) => !available.get(s.name)).map((s) => s.name);
+if (requireShells && missing.length > 0) {
+  throw new Error(
+    `GIT_MAPPER_REQUIRE_SHELLS=1 but these shells are not installed: ${missing.join(", ")}`,
+  );
+}
+
 interface Harness {
   readonly base: string;
   readonly env: NodeJS.ProcessEnv;

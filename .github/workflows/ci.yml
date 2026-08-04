@@ -36,16 +36,10 @@ jobs:
 
       - run: npm run typecheck
 
+      # AGENTS.md: 초록불이 곧 "모든 셸을 돌렸다"는 뜻은 아니다. 셸이 없으면 건너뛰는
+      # 대신 실패하게 만든다. 플랫폼 조건부 skip(대소문자 구분 파일시스템 등)은 그대로
+      # 둔다 — 그건 리눅스에서 실행할 수 없는 게 맞는 테스트다.
       - name: Test
-        run: |
-          set -o pipefail
-          npm test 2>&1 | tee test.log
-
-      # AGENTS.md: 초록불이 곧 "모든 셸을 돌렸다"는 뜻은 아니다. skip 수를 확인한다.
-      - name: Fail if any test was skipped
-        run: |
-          if ! grep -q '^ℹ skipped 0$' test.log; then
-            echo "::error::a test was skipped — the parity claim is only as good as the shells that ran"
-            grep -E '^ℹ (tests|pass|fail|skipped)' test.log
-            exit 1
-          fi
+        env:
+          GIT_MAPPER_REQUIRE_SHELLS: "1"
+        run: npm test

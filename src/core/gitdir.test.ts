@@ -10,7 +10,9 @@ import { toAbsolutePath } from "./paths.ts";
 const setup = (): { base: string; env: NodeJS.ProcessEnv } => {
   const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "gum-gitdir-")));
   const globalConfigPath = path.join(base, ".gitconfig");
-  fs.writeFileSync(globalConfigPath, "");
+  // identity를 적어 둔다. 빈 전역 설정으로도 macOS에서는 git이 사용자명·호스트명으로
+  // 지어내지만 CI 러너에서는 그러지 못하고 `Author identity unknown`으로 멈춘다.
+  fs.writeFileSync(globalConfigPath, "[user]\n\tname = t\n\temail = t@example.com\n");
   return { base, env: { ...process.env, GIT_CONFIG_GLOBAL: globalConfigPath } };
 };
 
